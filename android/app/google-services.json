@@ -1,0 +1,118 @@
+{
+  "project_info": {
+    "project_number": "746073923297",
+    "project_id": "aitalkenglish-fc26c",
+    "storage_bucket": "aitalkenglish-fc26c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:746073923297:android:3c22160dcf12dde9dce1a0",
+        "android_client_info": {
+          "package_name": "com.aisoft.aitalkenglish"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "746073923297-gf0g65mkp0fpf78t3r5k60vi7e840b46.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApFxDPWiRVvGqtCeuDfmm-O5ml9UqNLMs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "746073923297-gf0g65mkp0fpf78t3r5k60vi7e840b46.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "746073923297-nplblvlmkogqvekm4587ctfpcpm0i4fe.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.aitalkEnglish"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:746073923297:android:c111e0f386cebd93dce1a0",
+        "android_client_info": {
+          "package_name": "com.example.aitalk_copilot"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "746073923297-gf0g65mkp0fpf78t3r5k60vi7e840b46.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApFxDPWiRVvGqtCeuDfmm-O5ml9UqNLMs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "746073923297-gf0g65mkp0fpf78t3r5k60vi7e840b46.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "746073923297-nplblvlmkogqvekm4587ctfpcpm0i4fe.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.aitalkEnglish"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:746073923297:android:e8e5d6dc0b605ee9dce1a0",
+        "android_client_info": {
+          "package_name": "com.example.aitalk_english"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "746073923297-gf0g65mkp0fpf78t3r5k60vi7e840b46.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyApFxDPWiRVvGqtCeuDfmm-O5ml9UqNLMs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "746073923297-gf0g65mkp0fpf78t3r5k60vi7e840b46.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "746073923297-nplblvlmkogqvekm4587ctfpcpm0i4fe.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.aitalkEnglish"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
