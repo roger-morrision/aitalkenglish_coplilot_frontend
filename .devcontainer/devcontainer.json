@@ -1,0 +1,15 @@
+{
+  "name": "Flutter Dev",
+  "image": "ghcr.io/cirruslabs/flutter:stable",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dart-code.flutter",
+        "dart-code.dart-code"
+      ]
+    }
+  },
+  "mounts": [
+    "source=/workspaces,target=/workspaces,type=volume"
+  ]
+}
