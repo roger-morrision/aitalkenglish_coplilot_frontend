@@ -5,6 +5,7 @@ import 'features/grammar/grammar_screen.dart';
 import 'features/vocab/vocab_screen.dart';
 import 'features/lesson/lesson_screen.dart';
 import 'features/progress/progress_screen.dart';
+import 'features/settings/settings_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:firebase_auth/firebase_auth.dart';

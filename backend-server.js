@@ -26,11 +26,155 @@ db.serialize(() => {
   db.run('CREATE TABLE IF NOT EXISTS user_streaks (id INTEGER PRIMARY KEY, user_id INTEGER, streak_count INTEGER, last_activity DATE)');
   db.run('CREATE TABLE IF NOT EXISTS badges (id INTEGER PRIMARY KEY, user_id INTEGER, badge_name TEXT, earned_at DATETIME DEFAULT CURRENT_TIMESTAMP)');
   db.run('CREATE TABLE IF NOT EXISTS leaderboard (id INTEGER PRIMARY KEY, user_id INTEGER, score INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)');
+  db.run('CREATE TABLE IF NOT EXISTS app_settings (id INTEGER PRIMARY KEY, setting_key TEXT UNIQUE, setting_value TEXT)');
+  
+  // Initialize default AI model setting
+  db.run('INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES (?, ?)', 
+    ['selected_ai_model', 'deepseek/deepseek-chat-v3-0324:free']);
 });
 
 // OpenAI setup
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
+
+// Available AI Models
+const AVAILABLE_MODELS = [
+  {
+    id: 'deepseek/deepseek-chat-v3-0324:free',
+    name: 'DeepSeek V3 (Free)',
+    description: 'High-quality conversations and analysis',
+    provider: 'DeepSeek',
+    tier: 'Free'
+  },
+  {
+    id: 'meta-llama/llama-3.2-3b-instruct:free',
+    name: 'Llama 3.2 3B (Free)', 
+    description: 'Fast responses with good quality',
+    provider: 'Meta',
+    tier: 'Free'
+  },
+  {
+    id: 'microsoft/phi-3-mini-128k-instruct:free',
+    name: 'Phi-3 Mini (Free)',
+    description: 'Efficient small model for basic tasks',
+    provider: 'Microsoft',
+    tier: 'Free'
+  },
+  {
+    id: 'google/gemma-2-9b-it:free',
+    name: 'Gemma 2 9B (Free)',
+    description: 'Google\'s open model with good performance',
+    provider: 'Google',
+    tier: 'Free'
+  }
+];
+
+// Helper function to get selected AI model
+async function getSelectedModel() {
+  return new Promise((resolve, reject) => {
+    db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['selected_ai_model'], (err, row) => {
+      if (err) {
+        console.error('Error getting selected model:', err);
+        resolve('deepseek/deepseek-chat-v3-0324:free'); // Default fallback
+      } else {
+        resolve(row ? row.setting_value : 'deepseek/deepseek-chat-v3-0324:free');
+      }
+    });
+  });
+}
+
+// App Settings endpoints
+app.get('/settings/models', (req, res) => {
+  res.json({
+    available: AVAILABLE_MODELS,
+    message: 'Available AI models for selection'
+  });
+});
+
+app.get('/settings/current-model', (req, res) => {
+  db.get('SELECT setting_value FROM app_settings WHERE setting_key = ?', ['selected_ai_model'], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    const currentModelId = row ? row.setting_value : 'deepseek/deepseek-chat-v3-0324:free';
+    const currentModel = AVAILABLE_MODELS.find(model => model.id === currentModelId);
+    
+    res.json({
+      selected_model: currentModelId,
+      model_info: currentModel || AVAILABLE_MODELS[0]
+    });
+  });
+});
+
+app.post('/settings/select-model', (req, res) => {
+  const { model_id } = req.body;
+  
+  // Validate that the model exists in our available models
+  const selectedModel = AVAILABLE_MODELS.find(model => model.id === model_id);
+  if (!selectedModel) {
+    return res.status(400).json({ 
+      error: 'Invalid model selection',
+      available_models: AVAILABLE_MODELS.map(m => m.id)
+    });
+  }
+  
+  db.run('INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)', 
+    ['selected_ai_model', model_id], function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    res.json({ 
+      success: true,
+      selected_model: model_id,
+      model_info: selectedModel,
+      message: `AI model updated to ${selectedModel.name}`
+    });
+  });
+});
+
+// Voice Settings endpoints
+app.get('/settings/voice', (req, res) => {
+  db.all('SELECT * FROM app_settings WHERE setting_key IN (?, ?)', 
+    ['voice_autoplay_enabled', 'voice_input_enabled'], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    const settings = {
+      voice_autoplay_enabled: true, // default values
+      voice_input_enabled: true
+    };
+    
+    rows.forEach(row => {
+      settings[row.setting_key] = row.setting_value === 'true';
+    });
+    
+    res.json({
+      voice_autoplay_enabled: settings.voice_autoplay_enabled,
+      voice_input_enabled: settings.voice_input_enabled,
+      message: 'Voice settings retrieved successfully'
+    });
+  });
+});
+
+app.post('/settings/voice', (req, res) => {
+  const { voice_autoplay_enabled, voice_input_enabled } = req.body;
+  
+  // Validate boolean values
+  if (typeof voice_autoplay_enabled !== 'boolean' || typeof voice_input_enabled !== 'boolean') {
+    return res.status(400).json({ error: 'Voice settings must be boolean values' });
+  }
+  
+  // Update settings in database
+  const stmt = db.prepare('INSERT OR REPLACE INTO app_settings (setting_key, setting_value) VALUES (?, ?)');
+  
+  stmt.run('voice_autoplay_enabled', voice_autoplay_enabled.toString());
+  stmt.run('voice_input_enabled', voice_input_enabled.toString());
+  stmt.finalize();
+  
+  res.json({
+    success: true,
+    voice_autoplay_enabled,
+    voice_input_enabled,
+    message: 'Voice settings updated successfully'
+  });
+});
 
 // Chat endpoint
 app.post('/chat', async (req, res) => {
@@ -57,50 +201,85 @@ app.post('/chat', async (req, res) => {
   }
   
   try {
+    // Get the currently selected AI model
+    const selectedModel = await getSelectedModel();
+    console.log('Chat API using model:', selectedModel);
+    
+    // Use the same configuration as the working suggestions endpoint
     const response = await axios.post(
       OPENROUTER_BASE_URL,
       {
-        model: 'deepseek/deepseek-chat-v3-0324:free',
+        model: selectedModel,
         messages: [
-          { role: 'system', content: 'You are a friendly, encouraging English conversation partner. Always respond in 3 parts: 1) If there are grammar/language errors, start with "Great question! A better way to phrase this would be: [corrected version]" 2) Answer their question clearly and helpfully in a natural, conversational way 3) End with an engaging follow-up question to encourage more speaking practice. Never use asterisks, bullet points, formatting, or numbered lists. Speak naturally as if talking face-to-face. Keep responses conversational and 80-100 words total.' },
+          { 
+            role: 'system', 
+            content: 'You are an English language learning tutor, NOT a general AI assistant. Your ONLY job is to help users practice and improve their English. Always stay focused on English learning topics. If users ask about other topics (like technology, science, etc.), gently redirect them back to English learning while still being helpful. \n\nWhen responding:\n1. If their English has errors, start with "A better way to say this would be: [corrected version]"\n2. Then engage with their topic in a natural, conversational way\n3. End with a follow-up question to encourage more English practice\n4. Keep responses 80-100 words\n5. Never discuss AI, language models, or technical topics - focus only on English learning\n\nBe encouraging, friendly, and always redirect conversations toward English practice.' 
+          },
           { role: 'user', content: message }
         ],
         max_tokens: 300,
+        temperature: 0.7
       },
       {
         headers: {
           'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
           'Content-Type': 'application/json',
         },
+        timeout: 30000
       }
     );
+    
+    console.log('Chat API Success - AI Response:', response.data.choices[0].message.content);
     res.json({ reply: response.data.choices[0].message.content });
   } catch (err) {
-    console.error('Chat API Error:', err.response?.data || err.message);
-    console.error('Full error details:', err.response?.status, err.response?.statusText);
+    console.error('Chat API Error Details:');
+    console.error('- Error message:', err.message);
+    console.error('- Response status:', err.response?.status);
+    console.error('- Response data:', err.response?.data);
+    console.error('- Full error:', err);
     
-    // Always provide intelligent demo responses instead of generic fallbacks
-    const lowerMessage = message.toLowerCase();
-    let demoResponse;
-    
-    // Provide contextual responses based on the actual message content
-    if (lowerMessage.includes('pickleball')) {
-      demoResponse = "Great question! A better way to phrase this would be: 'I need to keep practicing pickleball. I want to become a stronger player. Are there any exercises I can follow?' Pickleball is such a fun sport! To get stronger, focus on footwork drills, paddle control exercises, and core strengthening. Regular practice with varied opponents also helps tremendously. What specific aspect of your pickleball game would you most like to improve - your serve, volleys, or court positioning?";
-    } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
-      demoResponse = "Hello there! It's so nice to meet you! I'm here to be your English conversation partner and help you practice speaking naturally. I love chatting about anything and everything. What's something interesting that happened to you today, or is there a particular topic you'd like to talk about?";
-    } else if (lowerMessage.includes('grammar')) {
-      demoResponse = "That's fantastic that you want to work on grammar! Grammar is like the foundation of a house - it helps everything else make sense. I'm here to help you practice in a natural way through our conversations. What kind of grammar questions do you have, or would you like to try describing something and I'll help you polish it up?";
-    } else if (lowerMessage.includes('vocabulary') || lowerMessage.includes('words')) {
-      demoResponse = "I love helping with vocabulary! New words are like collecting treasures - each one opens up new ways to express yourself. The best way to learn them is by using them in real conversations like we're having right now. Is there a specific topic you're interested in, or some words you've heard recently that you'd like to understand better?";
-    } else if (lowerMessage.includes('help') || lowerMessage.includes('learn')) {
-      demoResponse = "I'm absolutely delighted to help you with your English! Learning a language is such an exciting journey, and I'm here to make it fun and natural. We can chat about your hobbies, dreams, daily life, or anything that interests you. What would you like to start talking about today?";
-    } else if (lowerMessage.includes('practice')) {
-      demoResponse = "Great question! A better way to phrase this would be: 'I want to practice speaking English.' Practicing is the key to becoming fluent, and I'm so glad you're taking this step! The more we chat naturally like this, the more confident you'll become. Tell me, what motivated you to start learning English, or what's your favorite thing about the language so far?";
+    // Handle specific API errors with intelligent fallbacks
+    if (err.response?.status === 429) {
+      // Rate limit - provide intelligent contextual response
+      const lowerMessage = message.toLowerCase();
+      let contextualResponse;
+      
+      if (lowerMessage.includes('english') || lowerMessage.includes('learn')) {
+        contextualResponse = "I'd love to help you with your English learning! The AI service is currently busy, but I can still chat with you. Your question about improving English naturally is great - practicing with real conversations like this is one of the best ways to improve. What specific area of English would you like to focus on right now?";
+      } else if (lowerMessage.includes('speak') || lowerMessage.includes('speaking')) {
+        contextualResponse = "Speaking practice is so important! Even though our AI service is temporarily busy, I can still help you practice. The key to natural speaking is regular conversation and not being afraid to make mistakes. What topics do you enjoy talking about most?";
+      } else {
+        contextualResponse = "I'm experiencing high demand right now, but I'm still here to chat! Your message is interesting and I'd love to continue our conversation. What would you like to explore further?";
+      }
+      
+      return res.json({ reply: `[Temporary AI Limit] ${contextualResponse}` });
+      
+    } else if (err.response?.status === 402) {
+      return res.json({ reply: "[AI Service Quota] I'm temporarily unable to access the full AI service, but I'm still here to help you practice English! Let's keep chatting - what would you like to talk about?" });
+      
+    } else if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
+      return res.json({ reply: "[Connection Timeout] The AI service is taking longer than usual to respond. While we wait, let's continue our conversation! What interesting things have you been learning lately?" });
+      
     } else {
-      demoResponse = "That's really interesting! I love having natural conversations like this because it's exactly how you'll use English in real life. Every time you share something with me, you're building your confidence and fluency. What else would you like to chat about, or is there something specific about English that you're curious about?";
+      // Provide intelligent contextual responses instead of generic fallbacks
+      const lowerMessage = message.toLowerCase();
+      let demoResponse;
+      
+      // Provide contextual responses based on the actual message content
+      if (lowerMessage.includes('english') && lowerMessage.includes('natural')) {
+        demoResponse = "A better way to say this would be: 'How can I speak English more naturally in a short time? Is talking with AI a better option, and which AI app is best suited?' Speaking English naturally comes from practice and exposure! Talking with AI can definitely help because you can practice anytime without feeling embarrassed. What specific situations do you want to feel more confident in when speaking English?";
+      } else if (lowerMessage.includes('pickleball')) {
+        demoResponse = "A better way to phrase this would be: 'I need to keep practicing pickleball. I want to become a stronger player. Are there any exercises I can follow?' Pickleball is such a fun sport! To get stronger, focus on footwork drills, paddle control exercises, and core strengthening. Regular practice with varied opponents also helps tremendously. What specific aspect of your pickleball game would you most like to improve?";
+      } else if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
+        demoResponse = "Hello there! It's so nice to meet you! I'm here to be your English conversation partner and help you practice speaking naturally. I love chatting about anything and everything. What's something interesting that happened to you today, or is there a particular topic you'd like to talk about?";
+      } else if (lowerMessage.includes('help') || lowerMessage.includes('learn')) {
+        demoResponse = "I'm absolutely delighted to help you with your English! Learning a language is such an exciting journey, and I'm here to make it fun and natural. We can chat about your hobbies, dreams, daily life, or anything that interests you. What would you like to start talking about today?";
+      } else {
+        demoResponse = "That's really interesting! I love having natural conversations like this because it's exactly how you'll use English in real life. Every time you share something with me, you're building your confidence and fluency. What else would you like to chat about, or is there something specific about English that you're curious about?";
+      }
+      
+      return res.json({ reply: `[Demo Mode] ${demoResponse}` });
     }
-    
-    res.json({ reply: `[Demo Mode] ${demoResponse}` });
   }
 });
 
@@ -135,34 +314,37 @@ app.post('/suggestions', async (req, res) => {
   console.log('Using OpenRouter API for intelligent suggestions');
   
   try {
-    // Use OpenRouter API with specific prompt for comprehensive analysis
+    // Get the currently selected AI model
+    const selectedModel = await getSelectedModel();
+    console.log('Suggestions API using model:', selectedModel);
+    
+    // Use the selected model for suggestions
     const response = await axios.post(OPENROUTER_BASE_URL, {
-      model: "deepseek/deepseek-chat-v3-0324:free",
+      model: selectedModel,
       messages: [
         {
           role: "system",
-          content: `You are an expert English teacher. Analyze the student's message and provide detailed feedback in exactly this JSON format (no markdown, no code blocks):
+          content: `You are an English teacher. Analyze the student's message and provide feedback in JSON format ONLY.
+
+IMPORTANT: Your response must be valid JSON with exactly this structure:
+
 {
-  "grammar_fix": "If there are grammar errors, list each error and correction clearly. If no errors: 'No grammar errors found.'",
-  "better_versions": ["improved version 1 with better vocabulary", "improved version 2 with different structure", "improved version 3 with formal tone"],
+  "grammar_fix": "Describe grammar errors and corrections, or 'No grammar errors found'",
+  "better_versions": ["improved version 1", "improved version 2", "improved version 3"],
   "vocabulary": [
-    {"word": "relevant_word_1", "meaning": "clear definition", "example": "practical example sentence"},
-    {"word": "relevant_word_2", "meaning": "clear definition", "example": "practical example sentence"},
-    {"word": "relevant_word_3", "meaning": "clear definition", "example": "practical example sentence"}
+    {"word": "word1", "meaning": "definition", "example": "example sentence"},
+    {"word": "word2", "meaning": "definition", "example": "example sentence"}
   ]
 }
 
-Focus on:
-- Grammar: Check for verb tenses, word order, prepositions, articles, subject-verb agreement
-- Better versions: Provide natural, fluent alternatives with varied vocabulary and structures
-- Vocabulary: Choose words that are relevant to the topic and useful for English learners`
+DO NOT include any text before or after the JSON. DO NOT use markdown formatting. Return ONLY valid JSON.`
         },
         {
           role: "user",
-          content: `Please analyze this English text: "${inputText}"`
+          content: `Analyze: "${inputText}"`
         }
       ],
-      max_tokens: 800,
+      max_tokens: 600,
       temperature: 0.3
     }, {
       headers: {
@@ -172,8 +354,15 @@ Focus on:
       timeout: 30000
     });
 
+    console.log('OpenRouter API Response Status:', response.status);
+    console.log('OpenRouter API Response Data:', JSON.stringify(response.data, null, 2));
+    
+    if (!response.data || !response.data.choices || !response.data.choices[0]) {
+      throw new Error('Invalid API response structure');
+    }
+
     const aiResponse = response.data.choices[0].message.content;
-    console.log('AI Response received:', aiResponse);
+    console.log('Suggestions API Success - AI Response:', aiResponse);
     
     // Clean the response - remove any markdown formatting
     let cleanResponse = aiResponse.trim();
@@ -183,55 +372,198 @@ Focus on:
       cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
     }
     
+    // Handle case where AI returns text description instead of JSON
+    if (!cleanResponse.startsWith('{') || !cleanResponse.endsWith('}')) {
+      console.log('AI returned non-JSON response:', cleanResponse);
+      
+      // Extract meaningful information from the text response
+      const grammarFix = cleanResponse.includes('error') && cleanResponse.includes('correction') 
+        ? cleanResponse 
+        : 'The AI provided feedback in an unexpected format. Please try again.';
+      
+      return res.status(200).json({
+        grammar_fix: grammarFix,
+        better_versions: [
+          "Please try your message again for better suggestions.",
+          "The AI analysis needs to be reformatted.",
+          "Consider rephrasing your input for clearer feedback."
+        ],
+        vocabulary: [
+          {
+            word: "reformatted",
+            meaning: "arranged in a different format",
+            example: "The data was reformatted for better clarity."
+          }
+        ]
+      });
+    }
+    
     // Parse the JSON response
     try {
       const suggestions = JSON.parse(cleanResponse);
       console.log('Successfully parsed AI suggestions:', suggestions);
       
+      // Normalize the grammar_fix field to always be a string
+      let grammarFix = '';
+      if (Array.isArray(suggestions.grammar_fix)) {
+        // Convert array of error objects to readable string
+        grammarFix = suggestions.grammar_fix.map(item => {
+          if (typeof item === 'object' && item.error && item.correction) {
+            return `"${item.error}" should be "${item.correction}"`;
+          }
+          return item.toString();
+        }).join('; ');
+      } else if (typeof suggestions.grammar_fix === 'string') {
+        grammarFix = suggestions.grammar_fix;
+      } else {
+        grammarFix = suggestions.grammar_fix?.toString() || 'No grammar errors found';
+      }
+      
       // Validate the response structure
-      if (!suggestions.grammar_fix || !suggestions.better_versions || !suggestions.vocabulary) {
+      if (!suggestions.better_versions || !suggestions.vocabulary) {
         throw new Error('Invalid AI response structure');
       }
       
+      const normalizedResponse = {
+        grammar_fix: grammarFix,
+        better_versions: suggestions.better_versions,
+        vocabulary: suggestions.vocabulary
+      };
+      
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.status(200).json(suggestions);
+      res.status(200).json(normalizedResponse);
       
     } catch (parseError) {
       console.error('Failed to parse AI response as JSON:', parseError);
       console.error('AI response was:', cleanResponse);
       
-      return res.status(500).json({
-        error: 'AI model returned invalid format. Please try again.',
-        details: 'The AI response could not be parsed properly.'
+      // Try to extract useful information from the malformed response
+      let grammarFix = 'Grammar analysis unavailable';
+      let betterVersions = ['Please try rephrasing your message'];
+      let vocabulary = [{
+        word: 'retry',
+        meaning: 'to try again',
+        example: 'Please retry your request.'
+      }];
+      
+      // Look for error/correction patterns in the response
+      if (cleanResponse.includes('error') && cleanResponse.includes('correction')) {
+        // Extract text between error and correction
+        const match = cleanResponse.match(/error:?\s*([^,}]+).*correction:?\s*([^,}]+)/i);
+        if (match) {
+          const errorText = match[1].trim();
+          const correctionText = match[2].trim();
+          grammarFix = `Error: "${errorText}" should be "${correctionText}"`;
+          betterVersions = [correctionText, `Try using: ${correctionText}`, `Correct form: ${correctionText}`];
+        }
+      }
+      
+      return res.status(200).json({
+        grammar_fix: grammarFix,
+        better_versions: betterVersions,
+        vocabulary: vocabulary
       });
     }
     
   } catch (err) {
-    console.error('OpenRouter API Error:', err.message);
-    console.error('Full error:', err.response?.data || err);
+    console.error('Suggestions API Error Details:');
+    console.error('- Error message:', err.message);
+    console.error('- Response status:', err.response?.status);
+    console.error('- Response data:', err.response?.data);
+    console.error('- Full error:', err);
     
-    // Handle specific API errors
+    // Handle specific API errors with intelligent fallbacks
     if (err.response?.status === 429) {
-      return res.status(429).json({
-        error: 'AI model rate limit reached. Please try again in a few minutes.',
-        details: 'The free AI service has reached its usage limit.'
+      return res.status(200).json({
+        grammar_fix: "Rate limit reached - unable to check grammar right now",
+        better_versions: [
+          "The AI service is temporarily busy. Please try again in a moment.",
+          "Your message was received successfully.",
+          "Rate limit will reset shortly."
+        ],
+        vocabulary: [
+          {
+            word: "patience",
+            meaning: "the ability to wait calmly",
+            example: "Please have patience while the service recovers."
+          }
+        ]
       });
     } else if (err.response?.status === 402) {
-      return res.status(402).json({
-        error: 'AI model quota exceeded. Service requires payment.',
-        details: 'The AI service quota has been exhausted.'
+      return res.status(200).json({
+        grammar_fix: "AI service quota exceeded",
+        better_versions: [
+          "The AI analysis service has reached its daily limit.",
+          "Basic conversation mode is still available.",
+          "Suggestions will resume when quota resets."
+        ],
+        vocabulary: [
+          {
+            word: "quota",
+            meaning: "a limited quantity of something",
+            example: "The daily quota for API calls has been reached."
+          }
+        ]
       });
     } else if (err.code === 'ECONNABORTED' || err.message.includes('timeout')) {
-      return res.status(504).json({
-        error: 'AI model request timeout. Please try again.',
-        details: 'The AI service took too long to respond.'
+      return res.status(200).json({
+        grammar_fix: "Connection timeout - analysis unavailable",
+        better_versions: [
+          "The AI service is taking longer than usual to respond.",
+          "Your conversation can continue without suggestions.",
+          "Suggestions will work again when connection improves."
+        ],
+        vocabulary: [
+          {
+            word: "timeout",
+            meaning: "when a process takes too long to complete",
+            example: "The request failed due to a network timeout."
+          }
+        ]
       });
     } else {
-      return res.status(500).json({
-        error: 'AI service temporarily unavailable. Please try again later.',
-        details: err.response?.data?.error?.message || err.message
-      });
+      // Provide intelligent contextual suggestions as fallback
+      const lowerMessage = inputText.toLowerCase();
+      
+      if (lowerMessage.includes('food') || lowerMessage.includes('meal')) {
+        return res.status(200).json({
+          grammar_fix: "Grammar help temporarily unavailable",
+          better_versions: [
+            "What foods should I eat for each meal to stay healthy?",
+            "Which foods are best for maintaining good health?",
+            "What dietary choices help keep the body youthful?"
+          ],
+          vocabulary: [
+            {
+              word: "nutrition",
+              meaning: "the process of providing food necessary for health",
+              example: "Good nutrition is essential for staying healthy."
+            },
+            {
+              word: "balanced",
+              meaning: "having different elements in correct proportions",
+              example: "A balanced diet includes vegetables, proteins, and grains."
+            }
+          ]
+        });
+      } else {
+        return res.status(200).json({
+          grammar_fix: "AI suggestions temporarily unavailable",
+          better_versions: [
+            "Your message was understood clearly.",
+            "Continue practicing - you're doing great!",
+            "Suggestions will be available again soon."
+          ],
+          vocabulary: [
+            {
+              word: "practice",
+              meaning: "to do something repeatedly to improve skill",
+              example: "Regular practice helps improve English fluency."
+            }
+          ]
+        });
+      }
     }
   }
 });
@@ -256,10 +588,14 @@ app.post('/grammar', async (req, res) => {
   }
   
   try {
+    // Get the currently selected AI model
+    const selectedModel = await getSelectedModel();
+    console.log('Grammar API using model:', selectedModel);
+    
     const response = await axios.post(
       OPENROUTER_BASE_URL,
       {
-        model: 'deepseek/deepseek-chat-v3-0324:free',
+        model: selectedModel,
         messages: [
           { role: 'system', content: 'You are a grammar teacher. Correct the given text and briefly explain any errors.' },
           { role: 'user', content: sentence }

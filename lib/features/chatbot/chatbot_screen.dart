@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
 import '../../services/api_service.dart';
+import '../settings/settings_screen.dart';
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({super.key});
@@ -22,6 +23,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
   bool _isTyping = false;
   bool _isBackendConnected = true;
   bool _isSuggestionsEnabled = true; // New setting for suggestions panel
+  
+  // Voice settings
+  bool _voiceAutoplayEnabled = true;
+  bool _voiceInputEnabled = true;
 
   @override
   void initState() {
@@ -31,6 +36,20 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
       vsync: this,
     );
     _micAnimationController.repeat();
+    _loadVoiceSettings();
+  }
+
+  Future<void> _loadVoiceSettings() async {
+    try {
+      final voiceSettings = await ApiService.getVoiceSettings();
+      setState(() {
+        _voiceAutoplayEnabled = voiceSettings['voice_autoplay_enabled'] ?? true;
+        _voiceInputEnabled = voiceSettings['voice_input_enabled'] ?? true;
+      });
+    } catch (e) {
+      print('Error loading voice settings: $e');
+      // Keep default values if loading fails
+    }
   }
 
   @override
@@ -67,15 +86,19 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
         print('Chatbot: Suggestions parsed: ${suggestions.grammarFix}');
       } catch (e) {
         print('Chatbot: Error getting suggestions: $e');
-        // Show error-specific fallback
+        // Show error-specific fallback with correct data types
         suggestions = _MessageSuggestions(
-          grammarFix: 'Error: $text',
-          betterVersions: ['[Error: Could not fetch suggestions from server - $e]'],
+          grammarFix: 'Could not fetch suggestions from server',
+          betterVersions: [
+            'Error: Unable to get alternative expressions - ${e.toString()}',
+            'Try again later when the AI service is available',
+            'Check your internet connection'
+          ],
           vocabulary: [
             _VocabularyItem(
               word: 'error', 
-              meaning: 'API connection failed', 
-              example: 'Check console for details: $e'
+              meaning: 'A problem or mistake that prevents something from working properly', 
+              example: 'There was an error connecting to the suggestion service'
             )
           ],
         );
@@ -88,7 +111,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     });
     _scrollToBottom();
     
-    await _tts.speak(aiResponse);
+    // Auto-play AI response if enabled
+    if (_voiceAutoplayEnabled) {
+      await _tts.speak(aiResponse);
+    }
   }
 
   void _scrollToBottom() {
@@ -142,58 +168,6 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
       _sendMessage(_lastWords);
       _lastWords = '';
     }
-  }
-
-  void _showChatMenu() {
-    showMenu(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        MediaQuery.of(context).size.width - 50,
-        kToolbarHeight + MediaQuery.of(context).padding.top,
-        10,
-        0,
-      ),
-      items: [
-        PopupMenuItem(
-          value: 'settings',
-          child: Row(
-            children: [
-              Icon(Icons.settings, color: Colors.deepPurple, size: 20),
-              SizedBox(width: 12),
-              Text('Chat Settings'),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'clear',
-          child: Row(
-            children: [
-              Icon(Icons.clear_all, color: Colors.orange, size: 20),
-              SizedBox(width: 12),
-              Text('Clear Chat'),
-            ],
-          ),
-        ),
-        PopupMenuItem(
-          value: 'help',
-          child: Row(
-            children: [
-              Icon(Icons.help_outline, color: Colors.blue, size: 20),
-              SizedBox(width: 12),
-              Text('Help & Tips'),
-            ],
-          ),
-        ),
-      ],
-    ).then((value) {
-      if (value == 'settings') {
-        _showSettingsDialog();
-      } else if (value == 'clear') {
-        _showClearChatDialog();
-      } else if (value == 'help') {
-        _showHelpDialog();
-      }
-    });
   }
 
   void _showSettingsDialog() {
@@ -374,28 +348,32 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                   'Type messages to practice English conversation with AI tutor',
                 ),
                 SizedBox(height: 12),
-                _buildHelpItem(
-                  Icons.mic,
-                  'Voice Input',
-                  'Tap the microphone to speak your message instead of typing',
-                ),
-                SizedBox(height: 12),
+                if (_voiceInputEnabled)
+                  _buildHelpItem(
+                    Icons.mic,
+                    'Voice Input',
+                    'Tap the microphone to speak your message instead of typing',
+                  ),
+                if (_voiceInputEnabled)
+                  SizedBox(height: 12),
                 _buildHelpItem(
                   Icons.lightbulb,
                   'AI Suggestions',
                   'Enable suggestions in settings for grammar tips and vocabulary',
                 ),
                 SizedBox(height: 12),
+                if (_voiceAutoplayEnabled)
+                  _buildHelpItem(
+                    Icons.volume_up,
+                    'Text-to-Speech',
+                    'AI responses are automatically spoken aloud for pronunciation practice',
+                  ),
+                if (_voiceAutoplayEnabled)
+                  SizedBox(height: 12),
                 _buildHelpItem(
-                  Icons.volume_up,
-                  'Text-to-Speech',
-                  'AI responses are automatically spoken aloud for pronunciation practice',
-                ),
-                SizedBox(height: 12),
-                _buildHelpItem(
-                  Icons.eco,
-                  'Token Saving',
-                  'Disable suggestions in settings to save AI tokens for longer conversations',
+                  Icons.settings,
+                  'Voice Settings',
+                  'Configure voice features in settings (tap ⋮ → AI Model Settings)',
                 ),
               ],
             ),
@@ -519,9 +497,65 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                     ],
                   ),
                 ),
-                IconButton(
+                PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert, color: Colors.white),
-                  onPressed: () => _showChatMenu(),
+                  onSelected: (value) {
+                    if (value == 'ai_settings') {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const SettingsScreen(),
+                        ),
+                      );
+                    } else if (value == 'settings') {
+                      _showSettingsDialog();
+                    } else if (value == 'clear') {
+                      _showClearChatDialog();
+                    } else if (value == 'help') {
+                      _showHelpDialog();
+                    }
+                  },
+                  itemBuilder: (BuildContext context) => [
+                    PopupMenuItem(
+                      value: 'ai_settings',
+                      child: Row(
+                        children: [
+                          Icon(Icons.psychology, color: Colors.deepPurple, size: 20),
+                          SizedBox(width: 12),
+                          Text('AI Model Settings'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'settings',
+                      child: Row(
+                        children: [
+                          Icon(Icons.settings, color: Colors.deepPurple, size: 20),
+                          SizedBox(width: 12),
+                          Text('Chat Settings'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'clear',
+                      child: Row(
+                        children: [
+                          Icon(Icons.clear_all, color: Colors.orange, size: 20),
+                          SizedBox(width: 12),
+                          Text('Clear Chat'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'help',
+                      child: Row(
+                        children: [
+                          Icon(Icons.help_outline, color: Colors.blue, size: 20),
+                          SizedBox(width: 12),
+                          Text('Help & Tips'),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -594,20 +628,23 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: _isListening ? Colors.red : Colors.deepPurple,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: Icon(
-                        _isListening ? Icons.mic : Icons.mic_none,
-                        color: Colors.white,
+                  // Show microphone button only if voice input is enabled
+                  if (_voiceInputEnabled) ...[
+                    Container(
+                      decoration: BoxDecoration(
+                        color: _isListening ? Colors.red : Colors.deepPurple,
+                        shape: BoxShape.circle,
                       ),
-                      onPressed: _isListening ? _stopListening : _startListening,
+                      child: IconButton(
+                        icon: Icon(
+                          _isListening ? Icons.mic : Icons.mic_none,
+                          color: Colors.white,
+                        ),
+                        onPressed: _isListening ? _stopListening : _startListening,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
+                    const SizedBox(width: 8),
+                  ],
                   Container(
                     decoration: const BoxDecoration(
                       color: Colors.deepPurple,
@@ -1013,9 +1050,9 @@ class _VocabularyItem {
   
   factory _VocabularyItem.fromJson(Map<String, dynamic> json) {
     return _VocabularyItem(
-      word: json['word'] ?? '',
-      meaning: json['meaning'] ?? '',
-      example: json['example'] ?? '',
+      word: json['word']?.toString() ?? '',
+      meaning: json['meaning']?.toString() ?? '',
+      example: json['example']?.toString() ?? '',
     );
   }
 }
@@ -1033,11 +1070,33 @@ class _MessageSuggestions {
   
   factory _MessageSuggestions.fromJson(Map<String, dynamic> json) {
     return _MessageSuggestions(
-      grammarFix: json['grammar_fix'] ?? '',
-      betterVersions: List<String>.from(json['better_versions'] ?? []),
-      vocabulary: (json['vocabulary'] as List<dynamic>?)
-          ?.map((item) => _VocabularyItem.fromJson(item))
-          .toList() ?? [],
+      grammarFix: json['grammar_fix']?.toString() ?? '',
+      betterVersions: _parseStringList(json['better_versions']),
+      vocabulary: _parseVocabularyList(json['vocabulary']),
     );
+  }
+  
+  static List<String> _parseStringList(dynamic data) {
+    if (data == null) return [];
+    if (data is List) {
+      return data.map((item) => item.toString()).toList();
+    }
+    if (data is String) {
+      return [data];
+    }
+    return [data.toString()];
+  }
+  
+  static List<_VocabularyItem> _parseVocabularyList(dynamic data) {
+    if (data == null) return [];
+    if (data is List) {
+      return data.map((item) {
+        if (item is Map<String, dynamic>) {
+          return _VocabularyItem.fromJson(item);
+        }
+        return _VocabularyItem(word: 'error', meaning: 'Invalid data format', example: item.toString());
+      }).toList();
+    }
+    return [];
   }
 }

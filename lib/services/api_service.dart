@@ -189,4 +189,72 @@ class ApiService {
       ),
     ];
   }
+
+  // Settings API methods for AI model selection
+  
+  // Get available AI models
+  static Future<Map<String, dynamic>> getAvailableModels() async {
+    final response = await http.get(Uri.parse('$baseUrl/settings/models'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load available models: ${response.body}');
+    }
+  }
+
+  // Get current selected model
+  static Future<Map<String, dynamic>> getCurrentModel() async {
+    final response = await http.get(Uri.parse('$baseUrl/settings/current-model'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load current model: ${response.body}');
+    }
+  }
+
+  // Select a new AI model
+  static Future<Map<String, dynamic>> selectModel(String modelId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/settings/select-model'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'model_id': modelId}),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to select model: ${response.body}');
+    }
+  }
+
+  // Voice Settings API methods
+  
+  // Get current voice settings
+  static Future<Map<String, dynamic>> getVoiceSettings() async {
+    final response = await http.get(Uri.parse('$baseUrl/settings/voice'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load voice settings: ${response.body}');
+    }
+  }
+
+  // Update voice settings
+  static Future<Map<String, dynamic>> updateVoiceSettings({
+    required bool voiceAutoplayEnabled,
+    required bool voiceInputEnabled,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/settings/voice'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'voice_autoplay_enabled': voiceAutoplayEnabled,
+        'voice_input_enabled': voiceInputEnabled,
+      }),
+    );
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to update voice settings: ${response.body}');
+    }
+  }
 }
