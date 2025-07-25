@@ -21,8 +21,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
   late AnimationController _micAnimationController;
   bool _isTyping = false;
   bool _isBackendConnected = true;
-  _MessageSuggestions? _currentSuggestions;
-  bool _isLoadingSuggestions = false;
+  bool _isSuggestionsEnabled = true; // New setting for suggestions panel
 
   @override
   void initState() {
@@ -56,33 +55,20 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     _scrollToBottom();
     
     final aiResponse = await _getAIResponse(text);
-    setState(() {
-      _messages.add(_ChatMessage(text: aiResponse, isUser: false));
-      _isTyping = false;
-    });
-    _scrollToBottom();
     
-    // Get suggestions for the user's message
-    try {
-      print('Chatbot: Requesting suggestions for message: $text');
-      setState(() {
-        _currentSuggestions = null; // Clear old suggestions first
-        _isLoadingSuggestions = true;
-      });
-      
-      final suggestions = await ApiService.getMessageSuggestions(text);
-      print('Chatbot: Received suggestions: $suggestions');
-      
-      setState(() {
-        _currentSuggestions = _MessageSuggestions.fromJson(suggestions);
-        _isLoadingSuggestions = false;
-      });
-      print('Chatbot: Suggestions panel updated with: ${_currentSuggestions?.grammarFix}');
-    } catch (e) {
-      print('Chatbot: Error getting suggestions: $e');
-      // Show error-specific fallback
-      setState(() {
-        _currentSuggestions = _MessageSuggestions(
+    // Get suggestions for the user's message only if enabled
+    _MessageSuggestions? suggestions;
+    if (_isSuggestionsEnabled) {
+      try {
+        print('Chatbot: Requesting suggestions for message: $text');
+        final suggestionsData = await ApiService.getMessageSuggestions(text);
+        print('Chatbot: Received suggestions: $suggestionsData');
+        suggestions = _MessageSuggestions.fromJson(suggestionsData);
+        print('Chatbot: Suggestions parsed: ${suggestions.grammarFix}');
+      } catch (e) {
+        print('Chatbot: Error getting suggestions: $e');
+        // Show error-specific fallback
+        suggestions = _MessageSuggestions(
           grammarFix: 'Error: $text',
           betterVersions: ['[Error: Could not fetch suggestions from server - $e]'],
           vocabulary: [
@@ -93,9 +79,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
             )
           ],
         );
-        _isLoadingSuggestions = false;
-      });
+      }
     }
+    
+    setState(() {
+      _messages.add(_ChatMessage(text: aiResponse, isUser: false, suggestions: suggestions));
+      _isTyping = false;
+    });
+    _scrollToBottom();
     
     await _tts.speak(aiResponse);
   }
@@ -151,6 +142,116 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
       _sendMessage(_lastWords);
       _lastWords = '';
     }
+  }
+
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Row(
+                children: [
+                  Icon(Icons.settings, color: Colors.deepPurple),
+                  SizedBox(width: 8),
+                  Text('Chat Settings'),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.lightbulb_outline, color: Colors.orange),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'AI Suggestions Panel',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      Switch(
+                        value: _isSuggestionsEnabled,
+                        onChanged: (value) {
+                          setDialogState(() {
+                            _isSuggestionsEnabled = value;
+                          });
+                          setState(() {
+                            _isSuggestionsEnabled = value;
+                          });
+                        },
+                        activeColor: Colors.deepPurple,
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 16),
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.amber[200]!),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, color: Colors.amber[700], size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _isSuggestionsEnabled 
+                                ? 'Suggestions enabled: Each message will get grammar & vocabulary insights'
+                                : 'Suggestions disabled: Save AI tokens with simple conversation mode',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.amber[800],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: 16),
+                  Container(
+                    padding: EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green[200]!),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.eco, color: Colors.green[700], size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Token Usage: ${_isSuggestionsEnabled ? "Higher" : "Lower"} - ${_isSuggestionsEnabled ? "Detailed analysis for each message" : "Basic conversation only"}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.green[800],
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text('Close'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -215,7 +316,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                         _isTyping 
                             ? 'Typing...' 
                             : _isBackendConnected 
-                                ? 'Online' 
+                                ? _isSuggestionsEnabled 
+                                    ? 'Online • Suggestions ON' 
+                                    : 'Online • Suggestions OFF'
                                 : 'Connection issues',
                         style: TextStyle(
                           color: _isBackendConnected 
@@ -228,16 +331,14 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.more_vert, color: Colors.white),
-                  onPressed: () {
-                    // TODO: Show chat options menu
-                  },
+                  icon: const Icon(Icons.settings, color: Colors.white),
+                  onPressed: () => _showSettingsDialog(),
                 ),
               ],
             ),
           ),
           
-          // Scrollable Chat Body
+          // Scrollable Chat Body - Now contains everything
           Expanded(
             child: _messages.isEmpty
                 ? _buildEmptyState()
@@ -252,118 +353,84 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                       }
                       final msgIndex = _isTyping ? index - 1 : index;
                       final msg = _messages[_messages.length - 1 - msgIndex];
-                      return _buildMessage(msg);
+                      return _buildMessageWithSuggestions(msg);
                     },
                   ),
           ),
           
-          // Bottom section with constrained height to prevent overflow
+          // Input Form at Bottom - Simplified
           Container(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(context).size.height * 0.4, // Max 40% of screen height
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Suggestions Panel (scrollable if needed)
-                if (_isLoadingSuggestions)
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        const SizedBox(width: 12),
-                        Text('Loading suggestions...'),
-                      ],
-                    ),
-                  )
-                else if (_currentSuggestions != null)
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: _buildSuggestionsPanel(),
-                    ),
-                  ),
-                
-                // Input Form at Bottom
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    border: Border(
-                      top: BorderSide(color: Colors.grey[200]!),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 10,
-                        offset: const Offset(0, -2),
-                      ),
-                    ],
-                  ),
-                  child: SafeArea(
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.grey[100],
-                              borderRadius: BorderRadius.circular(24),
-                              border: Border.all(color: Colors.grey[300]!),
-                            ),
-                            child: TextField(
-                              controller: _controller,
-                              onSubmitted: _sendMessage,
-                              maxLines: null,
-                              minLines: 1,
-                              keyboardType: TextInputType.multiline,
-                              textInputAction: TextInputAction.send,
-                              textCapitalization: TextCapitalization.sentences,
-                              decoration: InputDecoration(
-                                hintText: 'Type your message...',
-                                hintStyle: TextStyle(color: Colors.grey[500]),
-                                border: InputBorder.none,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 20,
-                                  vertical: 12,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: _isListening ? Colors.red : Colors.deepPurple,
-                            shape: BoxShape.circle,
-                          ),
-                          child: IconButton(
-                            icon: Icon(
-                              _isListening ? Icons.mic : Icons.mic_none,
-                              color: Colors.white,
-                            ),
-                            onPressed: _isListening ? _stopListening : _startListening,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          decoration: const BoxDecoration(
-                            color: Colors.deepPurple,
-                            shape: BoxShape.circle,
-                          ),
-                          child: IconButton(
-                            icon: const Icon(Icons.send, color: Colors.white),
-                            onPressed: () => _sendMessage(_controller.text),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              border: Border(
+                top: BorderSide(color: Colors.grey[200]!),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, -2),
                 ),
               ],
+            ),
+            child: SafeArea(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: TextField(
+                        controller: _controller,
+                        onSubmitted: _sendMessage,
+                        maxLines: null,
+                        minLines: 1,
+                        keyboardType: TextInputType.multiline,
+                        textInputAction: TextInputAction.send,
+                        textCapitalization: TextCapitalization.sentences,
+                        decoration: InputDecoration(
+                          hintText: 'Type your message...',
+                          hintStyle: TextStyle(color: Colors.grey[500]),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: _isListening ? Colors.red : Colors.deepPurple,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: Icon(
+                        _isListening ? Icons.mic : Icons.mic_none,
+                        color: Colors.white,
+                      ),
+                      onPressed: _isListening ? _stopListening : _startListening,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.deepPurple,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.send, color: Colors.white),
+                      onPressed: () => _sendMessage(_controller.text),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -406,6 +473,44 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
               color: Colors.grey[500],
             ),
           ),
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: _isSuggestionsEnabled ? Colors.green[50] : Colors.orange[50],
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: _isSuggestionsEnabled ? Colors.green[200]! : Colors.orange[200]!,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _isSuggestionsEnabled ? Icons.lightbulb : Icons.lightbulb_outline,
+                  size: 16,
+                  color: _isSuggestionsEnabled ? Colors.green[600] : Colors.orange[600],
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _isSuggestionsEnabled ? 'AI Suggestions: ON' : 'AI Suggestions: OFF',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: _isSuggestionsEnabled ? Colors.green[700] : Colors.orange[700],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '• Tap ⚙️ to toggle',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -446,247 +551,259 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildMessage(_ChatMessage message) {
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-      child: Row(
-        mainAxisAlignment: message.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (!message.isUser) ...[
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: Colors.deepPurple,
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.smart_toy,
-                color: Colors.white,
-                size: 16,
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-          Flexible(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: message.isUser 
-                    ? Colors.deepPurple 
-                    : Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Text(
-                message.text,
-                style: TextStyle(
-                  color: message.isUser ? Colors.white : Colors.grey[800],
-                  fontSize: 14,
-                  height: 1.4,
-                ),
-              ),
-            ),
-          ),
-          if (message.isUser) ...[
-            const SizedBox(width: 8),
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: Colors.deepPurple[100],
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.person,
-                color: Colors.deepPurple[700],
-                size: 16,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSuggestionsPanel() {
-    if (_currentSuggestions == null) return const SizedBox.shrink();
-    
-    // Debug logging
-    print('=== SUGGESTIONS PANEL DEBUG ===');
-    print('Grammar fix: ${_currentSuggestions!.grammarFix}');
-    print('Better versions: ${_currentSuggestions!.betterVersions}');
-    print('Vocabulary count: ${_currentSuggestions!.vocabulary.length}');
-    for (var vocab in _currentSuggestions!.vocabulary) {
-      print('Vocab: ${vocab.word} - ${vocab.meaning} - ${vocab.example}');
-    }
-    print('=== END DEBUG ===');
-    
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.blue[50],
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blue[200]!),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header with close button
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget _buildMessageWithSuggestions(_ChatMessage message) {
+    return Column(
+      children: [
+        // Main message bubble
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+          child: Row(
+            mainAxisAlignment: message.isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '📚 Grammar & Vocabulary Insights',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.blue[800],
+              if (!message.isUser) ...[
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.smart_toy,
+                    color: Colors.white,
+                    size: 16,
+                  ),
                 ),
-              ),
-              IconButton(
-                icon: Icon(Icons.close, color: Colors.blue[600], size: 20),
-                onPressed: () {
-                  setState(() {
-                    _currentSuggestions = null;
-                  });
-                },
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          
-          // Grammar Fix Section
-          if (_currentSuggestions!.grammarFix.isNotEmpty) ...[
-            Text(
-              '✏️ Grammar Check',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.green[700],
-              ),
-            ),
-            const SizedBox(height: 4),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.green[50],
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.green[200]!),
-              ),
-              child: Text(
-                _currentSuggestions!.grammarFix,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.green[800],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          
-          // Better Versions Section
-          if (_currentSuggestions!.betterVersions.isNotEmpty) ...[
-            Text(
-              '💡 Alternative Expressions',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.orange[700],
-              ),
-            ),
-            const SizedBox(height: 4),
-            ..._currentSuggestions!.betterVersions.map((version) => 
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  children: [
-                    Icon(Icons.arrow_right, size: 16, color: Colors.orange[600]),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        version,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.orange[800],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ).toList(),
-            const SizedBox(height: 12),
-          ],
-          
-          // Vocabulary Section
-          if (_currentSuggestions!.vocabulary.isNotEmpty) ...[
-            Text(
-              '📖 New Vocabulary',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Colors.purple[700],
-              ),
-            ),
-            const SizedBox(height: 8),
-            ..._currentSuggestions!.vocabulary.map((vocab) => 
-              Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.purple[50],
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.purple[200]!),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      vocab.word,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.purple[800],
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      vocab.meaning,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.purple[700],
-                      ),
-                    ),
-                    if (vocab.example.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        'Example: ${vocab.example}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontStyle: FontStyle.italic,
-                          color: Colors.purple[600],
-                        ),
+                const SizedBox(width: 8),
+              ],
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: message.isUser 
+                        ? Colors.deepPurple 
+                        : Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
                       ),
                     ],
-                  ],
+                  ),
+                  child: Text(
+                    message.text,
+                    style: TextStyle(
+                      color: message.isUser ? Colors.white : Colors.grey[800],
+                      fontSize: 14,
+                      height: 1.4,
+                    ),
+                  ),
                 ),
               ),
-            ).toList(),
-          ],
-        ],
-      ),
+              if (message.isUser) ...[
+                const SizedBox(width: 8),
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.deepPurple[100],
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.person,
+                    color: Colors.deepPurple[700],
+                    size: 16,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        
+        // Suggestions panel (only for AI messages with suggestions)
+        if (!message.isUser && message.suggestions != null)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.blue[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.blue[200]!),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '📚 Grammar & Vocabulary Insights',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue[800],
+                          ),
+                        ),
+                        SizedBox(width: 8),
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.green[100],
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.green[300]!),
+                          ),
+                          child: Text(
+                            'ON',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green[700],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Tooltip(
+                      message: 'Disable in settings to save AI tokens',
+                      child: Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: Colors.blue[600],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                
+                // Grammar Fix Section
+                if (message.suggestions!.grammarFix.isNotEmpty) ...[
+                  Text(
+                    '✏️ Grammar Check',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.green[700],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.green[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.green[200]!),
+                    ),
+                    child: Text(
+                      message.suggestions!.grammarFix,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.green[800],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                
+                // Better Versions Section
+                if (message.suggestions!.betterVersions.isNotEmpty) ...[
+                  Text(
+                    '💡 Alternative Expressions',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.orange[700],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...message.suggestions!.betterVersions.map((version) => 
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          Icon(Icons.arrow_right, size: 16, color: Colors.orange[600]),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              version,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.orange[800],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ).toList(),
+                  const SizedBox(height: 12),
+                ],
+                
+                // Vocabulary Section
+                if (message.suggestions!.vocabulary.isNotEmpty) ...[
+                  Text(
+                    '📖 New Vocabulary',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.purple[700],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...message.suggestions!.vocabulary.map((vocab) => 
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.purple[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.purple[200]!),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            vocab.word,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.purple[800],
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            vocab.meaning,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.purple[700],
+                            ),
+                          ),
+                          if (vocab.example.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Example: ${vocab.example}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontStyle: FontStyle.italic,
+                                color: Colors.purple[600],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ).toList(),
+                ],
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
@@ -694,7 +811,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
 class _ChatMessage {
   final String text;
   final bool isUser;
-  _ChatMessage({required this.text, required this.isUser});
+  final _MessageSuggestions? suggestions;
+  _ChatMessage({required this.text, required this.isUser, this.suggestions});
 }
 
 class _VocabularyItem {
