@@ -1,15 +1,33 @@
 {
-  "name": "Flutter Dev",
-  "image": "ghcr.io/cirruslabs/flutter:stable",
+  "name": "Flutter Development",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "customizations": {
     "vscode": {
       "extensions": [
         "dart-code.flutter",
-        "dart-code.dart-code"
-      ]
+        "dart-code.dart-code",
+        "ms-vscode.vscode-json",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "dart.flutterSdkPath": "/home/vscode/flutter",
+        "dart.showTodos": true,
+        "dart.openDevTools": "flutter",
+        "editor.formatOnSave": true
+      }
     }
   },
-  "mounts": [
-    "source=/workspaces,target=/workspaces,type=volume"
-  ]
+  "postCreateCommand": "flutter pub get",
+  "forwardPorts": [3000, 8080, 42000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Flutter Web"
+    },
+    "42000": {
+      "label": "Flutter DevTools" 
+    }
+  },
+  "remoteUser": "vscode"
 }
