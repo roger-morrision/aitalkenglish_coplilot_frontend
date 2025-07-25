@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="/">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="AI Talk English - Learn English with AI">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="AI Talk English">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>AI Talk English</title>
+  <link rel="manifest" href="manifest.json">
+  
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
+      overflow: hidden;
+    }
+    
+    .initial-loader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
+      z-index: 9999;
+    }
+    
+    .app-logo {
+      width: 120px;
+      height: 120px;
+      background: #673ab7;
+      border-radius: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(103, 58, 183, 0.3);
+      margin-bottom: 32px;
+      animation: logoFloat 2s ease-in-out infinite alternate;
+    }
+    
+    .app-logo::before {
+      content: '💬';
+      font-size: 60px;
+      filter: grayscale(100%) brightness(200%);
+    }
+    
+    .app-title {
+      font-size: 28px;
+      font-weight: bold;
+      color: #673ab7;
+      margin-bottom: 8px;
+      text-align: center;
+    }
+    
+    .app-subtitle {
+      font-size: 16px;
+      color: #7e57c2;
+      margin-bottom: 48px;
+      text-align: center;
+    }
+    
+    .loading-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #b39ddb;
+      border-top: 3px solid #673ab7;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 16px;
+    }
+    
+    .loading-text {
+      font-size: 14px;
+      color: #7e57c2;
+      text-align: center;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    @keyframes logoFloat {
+      0% { transform: translateY(0px); }
+      100% { transform: translateY(-10px); }
+    }
+    
+    @keyframes fadeOut {
+      from { opacity: 1; }
+      to { opacity: 0; }
+    }
+    
+    .fade-out {
+      animation: fadeOut 0.8s ease-out forwards;
+    }
+    
+    /* Hide the initial loader when Flutter is ready */
+    .flutter-ready .initial-loader {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- Initial Loading Screen (shows immediately) -->
+  <div class="initial-loader" id="initialLoader">
+    <div class="app-logo"></div>
+    <div class="app-title">AI Talk English</div>
+    <div class="app-subtitle">Learn English with AI</div>
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Loading application...</div>
+  </div>
+
+  <script>
+    // Track Flutter loading state
+    let flutterReady = false;
+    let minLoadingTime = 3000; // Minimum 3 seconds of loading for smoother transition
+    let startTime = Date.now();
+    
+    // Hide the initial loader when Flutter is ready
+    window.addEventListener('flutter-first-frame', function() {
+      console.log('Flutter first frame detected');
+      flutterReady = true;
+      checkAndHideLoader();
+    });
+    
+    function checkAndHideLoader() {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, minLoadingTime - elapsed);
+      
+      console.log(`Elapsed: ${elapsed}ms, Remaining: ${remaining}ms`);
+      
+      setTimeout(() => {
+        const loader = document.getElementById('initialLoader');
+        if (loader) {
+          console.log('Starting fade out of HTML loader');
+          loader.classList.add('fade-out');
+          setTimeout(() => {
+            loader.style.display = 'none';
+            document.body.classList.add('flutter-ready');
+            console.log('HTML loader removed, Flutter ready');
+          }, 800); // Longer fade out
+        }
+      }, remaining);
+    }
+    
+    // Also check minimum time even if Flutter is ready
+    setTimeout(() => {
+      if (flutterReady) {
+        checkAndHideLoader();
+      }
+    }, minLoadingTime);
+    
+    // Fallback: Hide loader after a maximum time even if Flutter doesn't load
+    setTimeout(function() {
+      console.log('Fallback timer triggered');
+      const loader = document.getElementById('initialLoader');
+      if (loader && loader.style.display !== 'none') {
+        loader.classList.add('fade-out');
+        setTimeout(() => {
+          loader.style.display = 'none';
+          document.body.classList.add('flutter-ready');
+          console.log('HTML loader removed via fallback');
+        }, 800);
+      }
+    }, 20000); // 20 seconds fallback for better reliability
+  </script>
+  
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
