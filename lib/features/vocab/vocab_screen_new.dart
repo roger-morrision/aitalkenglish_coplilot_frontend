@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'flashcard_screen.dart';
 
 class VocabScreen extends StatefulWidget {
   const VocabScreen({super.key});
@@ -14,6 +13,7 @@ class _VocabScreenState extends State<VocabScreen> {
   List<Map<String, String>> _vocab = [];
   bool _loading = false;
   String? _error;
+  String? _lastAdded;
 
   Future<void> _fetchVocab() async {
     setState(() => _loading = true);
@@ -47,6 +47,7 @@ class _VocabScreenState extends State<VocabScreen> {
       // Add to local list for now
       setState(() {
         _vocab.add({"word": word, "meaning": meaning});
+        _lastAdded = word;
       });
       
       _wordController.clear();
@@ -92,18 +93,6 @@ class _VocabScreenState extends State<VocabScreen> {
         title: const Text('Vocabulary'),
         backgroundColor: Colors.deepPurple,
         foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.quiz),
-            tooltip: 'Practice Flashcards',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const FlashcardScreen()),
-              );
-            },
-          ),
-        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),

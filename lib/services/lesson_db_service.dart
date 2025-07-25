@@ -47,7 +47,7 @@ class LessonDbService {
     final db = await getDb();
     final maps = await db.query('streak', orderBy: 'date DESC', limit: 1);
     if (maps.isNotEmpty) {
-      return maps.first['count'] ?? 0;
+      return (maps.first['count'] as int?) ?? 0;
     }
     return 0;
   }
