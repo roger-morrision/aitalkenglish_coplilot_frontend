@@ -144,6 +144,58 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     }
   }
 
+  void _showChatMenu() {
+    showMenu(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        MediaQuery.of(context).size.width - 50,
+        kToolbarHeight + MediaQuery.of(context).padding.top,
+        10,
+        0,
+      ),
+      items: [
+        PopupMenuItem(
+          value: 'settings',
+          child: Row(
+            children: [
+              Icon(Icons.settings, color: Colors.deepPurple, size: 20),
+              SizedBox(width: 12),
+              Text('Chat Settings'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'clear',
+          child: Row(
+            children: [
+              Icon(Icons.clear_all, color: Colors.orange, size: 20),
+              SizedBox(width: 12),
+              Text('Clear Chat'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: 'help',
+          child: Row(
+            children: [
+              Icon(Icons.help_outline, color: Colors.blue, size: 20),
+              SizedBox(width: 12),
+              Text('Help & Tips'),
+            ],
+          ),
+        ),
+      ],
+    ).then((value) {
+      if (value == 'settings') {
+        _showSettingsDialog();
+      } else if (value == 'clear') {
+        _showClearChatDialog();
+      } else if (value == 'help') {
+        _showHelpDialog();
+      }
+    });
+  }
+
   void _showSettingsDialog() {
     showDialog(
       context: context,
@@ -254,6 +306,143 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     );
   }
 
+  void _showClearChatDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.warning, color: Colors.orange),
+              SizedBox(width: 8),
+              Text('Clear Chat'),
+            ],
+          ),
+          content: Text(
+            'Are you sure you want to clear all chat messages? This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _messages.clear();
+                });
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Chat cleared successfully'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.white,
+              ),
+              child: Text('Clear'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Icon(Icons.help, color: Colors.blue),
+              SizedBox(width: 8),
+              Text('Help & Tips'),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildHelpItem(
+                  Icons.chat,
+                  'Chat Features',
+                  'Type messages to practice English conversation with AI tutor',
+                ),
+                SizedBox(height: 12),
+                _buildHelpItem(
+                  Icons.mic,
+                  'Voice Input',
+                  'Tap the microphone to speak your message instead of typing',
+                ),
+                SizedBox(height: 12),
+                _buildHelpItem(
+                  Icons.lightbulb,
+                  'AI Suggestions',
+                  'Enable suggestions in settings for grammar tips and vocabulary',
+                ),
+                SizedBox(height: 12),
+                _buildHelpItem(
+                  Icons.volume_up,
+                  'Text-to-Speech',
+                  'AI responses are automatically spoken aloud for pronunciation practice',
+                ),
+                SizedBox(height: 12),
+                _buildHelpItem(
+                  Icons.eco,
+                  'Token Saving',
+                  'Disable suggestions in settings to save AI tokens for longer conversations',
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Got it!'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildHelpItem(IconData icon, String title, String description) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: Colors.blue, size: 20),
+        SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              SizedBox(height: 2),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey[600],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -331,8 +520,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.settings, color: Colors.white),
-                  onPressed: () => _showSettingsDialog(),
+                  icon: const Icon(Icons.more_vert, color: Colors.white),
+                  onPressed: () => _showChatMenu(),
                 ),
               ],
             ),
@@ -502,7 +691,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  '• Tap ⚙️ to toggle',
+                  '• Tap ⋮ to toggle',
                   style: TextStyle(
                     fontSize: 11,
                     color: Colors.grey[600],
@@ -671,7 +860,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                       ],
                     ),
                     Tooltip(
-                      message: 'Disable in settings to save AI tokens',
+                      message: 'Disable in three dots menu to save AI tokens',
                       child: Icon(
                         Icons.info_outline,
                         size: 16,
