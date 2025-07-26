@@ -4,8 +4,11 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/api_service.dart';
 import '../../services/progress_service.dart';
+import '../../services/conversation_service.dart';
+import '../../models/conversation.dart';
 import '../settings/settings_screen.dart';
 import '../../widgets/audio_player.dart';
+import 'conversation_history_screen.dart';
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({super.key});
@@ -15,7 +18,10 @@ class ChatbotScreen extends StatefulWidget {
 }
 
 class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateMixin {
+  // Current conversation and messages
+  Conversation? _currentConversation;
   final List<_ChatMessage> _messages = [];
+  
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -27,6 +33,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
   bool _isBackendConnected = true;
   bool _isSuggestionsEnabled = true; // New setting for suggestions panel
   final Set<int> _loadingSuggestions = {}; // Track which messages are loading suggestions
+  bool _isLoadingConversation = false;
   
   // Voice settings
   bool _voiceAutoplayEnabled = true;
@@ -42,6 +49,40 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     _micAnimationController.repeat();
     _initTts();
     _loadVoiceSettings();
+    _loadActiveConversation();
+  }
+
+  Future<void> _loadActiveConversation() async {
+    setState(() => _isLoadingConversation = true);
+    
+    try {
+      final activeConversation = await ConversationService.getActiveConversation();
+      if (activeConversation != null) {
+        setState(() {
+          _currentConversation = activeConversation;
+          _messages.clear();
+          
+          // Convert conversation messages to _ChatMessage format
+          for (final message in activeConversation.messages) {
+            _messages.add(_ChatMessage(
+              text: message.content,
+              isUser: message.isUser,
+              suggestions: message.metadata != null 
+                  ? _MessageSuggestions.fromJson(message.metadata!)
+                  : null,
+            ));
+          }
+        });
+        
+        print('Loaded conversation: ${activeConversation.title} with ${activeConversation.messages.length} messages');
+      } else {
+        print('No active conversation found, will create new one on first message');
+      }
+    } catch (e) {
+      print('Error loading active conversation: $e');
+    } finally {
+      setState(() => _isLoadingConversation = false);
+    }
   }
 
   Future<void> _initTts() async {
@@ -78,111 +119,138 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
   void _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
     
-    // Track user progress
     try {
+      // Track user progress
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         final currentProgress = await ProgressService.loadProgress(user.uid);
         await ProgressService.trackMessageSubmission(currentProgress, text, 'chat');
       }
-    } catch (e) {
-      print('Error tracking progress: $e');
-    }
-    
-    final userMessage = _ChatMessage(text: text, isUser: true);
-    setState(() {
-      _messages.add(userMessage);
-      _isTyping = true;
-    });
-    _controller.clear();
-    _scrollToBottom();
-    
-    final aiResponse = await _getAIResponse(text);
-    
-    // Show AI response immediately with optimistic loading placeholder
-    final aiMessageIndex = _messages.length;
-    
-    // Create placeholder suggestions to show immediately
-    final placeholderSuggestions = _MessageSuggestions(
-      grammarFix: 'Analyzing grammar...',
-      betterVersions: [
-        'Finding alternative expressions...',
-        'Generating better versions...',
-      ],
-      vocabulary: [
-        _VocabularyItem(
-          word: 'Loading...', 
-          meaning: 'Analyzing vocabulary...', 
-          example: 'Finding relevant examples...'
-        )
-      ],
-    );
-    
-    setState(() {
-      _messages.add(_ChatMessage(
-        text: aiResponse, 
-        isUser: false, 
-        suggestions: _isSuggestionsEnabled ? placeholderSuggestions : null
-      ));
-      _isTyping = false;
-      // Start loading suggestions for this message
-      if (_isSuggestionsEnabled) {
-        _loadingSuggestions.add(aiMessageIndex);
+      
+      // Add user message to conversation service
+      await ConversationService.addUserMessage(text);
+      
+      // Update current conversation reference
+      _currentConversation = await ConversationService.getActiveConversation();
+      
+      // Add to UI
+      final userMessage = _ChatMessage(text: text, isUser: true);
+      setState(() {
+        _messages.add(userMessage);
+        _isTyping = true;
+      });
+      _controller.clear();
+      _scrollToBottom();
+      
+      // Get AI response
+      final aiResponse = await _getAIResponse(text);
+      
+      // Add AI response to conversation service
+      final aiChatMessage = await ConversationService.addAIMessage(aiResponse);
+      
+      // Show AI response immediately with optimistic loading placeholder
+      final aiMessageIndex = _messages.length;
+      
+      // Create placeholder suggestions to show immediately
+      final placeholderSuggestions = _MessageSuggestions(
+        grammarFix: 'Analyzing grammar...',
+        betterVersions: [
+          'Finding alternative expressions...',
+          'Generating better versions...',
+        ],
+        vocabulary: [
+          _VocabularyItem(
+            word: 'Loading...', 
+            meaning: 'Analyzing vocabulary...', 
+            example: 'Finding relevant examples...'
+          )
+        ],
+      );
+      
+      setState(() {
+        _messages.add(_ChatMessage(
+          text: aiResponse, 
+          isUser: false, 
+          suggestions: _isSuggestionsEnabled ? placeholderSuggestions : null
+        ));
+        _isTyping = false;
+        // Start loading suggestions for this message
+        if (_isSuggestionsEnabled) {
+          _loadingSuggestions.add(aiMessageIndex);
+        }
+      });
+      _scrollToBottom();
+      
+      // Auto-play AI response if enabled
+      if (_voiceAutoplayEnabled) {
+        await _tts.speak(aiResponse);
       }
-    });
-    _scrollToBottom();
-    
-    // Auto-play AI response if enabled
-    if (_voiceAutoplayEnabled) {
-      await _tts.speak(aiResponse);
-    }
-    
-    // Get suggestions for the user's message asynchronously if enabled
-    if (_isSuggestionsEnabled) {
-      try {
-        print('Chatbot: Requesting suggestions for message: $text');
-        final suggestionsData = await ApiService.getMessageSuggestions(text);
-        print('Chatbot: Received suggestions: $suggestionsData');
-        final suggestions = _MessageSuggestions.fromJson(suggestionsData);
-        print('Chatbot: Suggestions parsed: ${suggestions.grammarFix}');
-        
-        // Update the AI message with suggestions by replacing it
-        setState(() {
-          _messages[aiMessageIndex] = _ChatMessage(
-            text: aiResponse, 
-            isUser: false, 
-            suggestions: suggestions
+      
+      // Get suggestions for the user's message asynchronously if enabled
+      if (_isSuggestionsEnabled) {
+        try {
+          print('Chatbot: Requesting suggestions for message: $text');
+          final suggestionsData = await ApiService.getMessageSuggestions(text);
+          print('Chatbot: Received suggestions: $suggestionsData');
+          final suggestions = _MessageSuggestions.fromJson(suggestionsData);
+          print('Chatbot: Suggestions parsed: ${suggestions.grammarFix}');
+          
+          // Update the AI message with suggestions by replacing it
+          setState(() {
+            _messages[aiMessageIndex] = _ChatMessage(
+              text: aiResponse, 
+              isUser: false, 
+              suggestions: suggestions
+            );
+            _loadingSuggestions.remove(aiMessageIndex); // Clear loading state
+          });
+          
+          // Update the message metadata in conversation service
+          await ConversationService.updateMessageMetadata(
+            aiChatMessage.id,
+            {'suggestions': suggestionsData},
           );
-          _loadingSuggestions.remove(aiMessageIndex); // Clear loading state
-        });
-      } catch (e) {
-        print('Chatbot: Error getting suggestions: $e');
-        // Show error-specific fallback with correct data types
-        final errorSuggestions = _MessageSuggestions(
-          grammarFix: 'Could not fetch suggestions from server',
-          betterVersions: [
-            'Error: Unable to get alternative expressions - ${e.toString()}',
-            'Try again later when the AI service is available',
-            'Check your internet connection'
-          ],
-          vocabulary: [
-            _VocabularyItem(
-              word: 'error', 
-              meaning: 'A problem or mistake that prevents something from working properly', 
-              example: 'There was an error connecting to the suggestion service'
-            )
-          ],
+        } catch (e) {
+          print('Chatbot: Error getting suggestions: $e');
+          // Show error-specific fallback with correct data types
+          final errorSuggestions = _MessageSuggestions(
+            grammarFix: 'Could not fetch suggestions from server',
+            betterVersions: [
+              'Error: Unable to get alternative expressions - ${e.toString()}',
+              'Try again later when the AI service is available',
+              'Check your internet connection'
+            ],
+            vocabulary: [
+              _VocabularyItem(
+                word: 'error', 
+                meaning: 'A problem or mistake that prevents something from working properly', 
+                example: 'There was an error connecting to the suggestion service'
+              )
+            ],
+          );
+          
+          // Update the AI message with error suggestions by replacing it
+          setState(() {
+            _messages[aiMessageIndex] = _ChatMessage(
+              text: aiResponse, 
+              isUser: false, 
+              suggestions: errorSuggestions
+            );
+            _loadingSuggestions.remove(aiMessageIndex); // Clear loading state
+          });
+        }
+      }
+    } catch (e) {
+      print('Error in _sendMessage: $e');
+      setState(() => _isTyping = false);
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error sending message: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
-        
-        // Update the AI message with error suggestions by replacing it
-        setState(() {
-          _messages[aiMessageIndex] = _ChatMessage(
-            text: aiResponse, 
-            isUser: false, 
-            suggestions: errorSuggestions
-          );
-          _loadingSuggestions.remove(aiMessageIndex); // Clear loading state
-        });
       }
     }
   }
@@ -201,7 +269,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
 
   Future<String> _getAIResponse(String userInput) async {
     try {
-      final response = await ApiService.sendChatMessage(userInput);
+      // Pass conversation ID if available
+      final conversationId = _currentConversation?.id;
+      final response = await ApiService.sendChatMessage(userInput, conversationId: conversationId);
       if (mounted) {
         setState(() {
           _isBackendConnected = true;
@@ -459,6 +529,25 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     );
   }
 
+  void _showConversationHistory() async {
+    final result = await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const ConversationHistoryScreen(),
+      ),
+    );
+
+    // Handle result from conversation history screen
+    if (result != null) {
+      if (result == 'new') {
+        // New conversation was created, reload current conversation
+        await _loadActiveConversation();
+      } else if (result is String) {
+        // Specific conversation was selected, load it
+        await _loadActiveConversation();
+      }
+    }
+  }
+
   Widget _buildHelpItem(IconData icon, String title, String description) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -576,6 +665,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                           builder: (context) => const SettingsScreen(),
                         ),
                       );
+                    } else if (value == 'history') {
+                      _showConversationHistory();
                     } else if (value == 'settings') {
                       _showSettingsDialog();
                     } else if (value == 'clear') {
@@ -585,6 +676,16 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                     }
                   },
                   itemBuilder: (BuildContext context) => [
+                    PopupMenuItem(
+                      value: 'history',
+                      child: Row(
+                        children: [
+                          Icon(Icons.history, color: Colors.deepPurple, size: 20),
+                          SizedBox(width: 12),
+                          Text('Chat History'),
+                        ],
+                      ),
+                    ),
                     PopupMenuItem(
                       value: 'ai_settings',
                       child: Row(

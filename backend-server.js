@@ -21,12 +21,54 @@ const db = new sqlite3.Database('./aitalk.db');
 db.serialize(() => {
   db.run('CREATE TABLE IF NOT EXISTS vocab (id INTEGER PRIMARY KEY, word TEXT, meaning TEXT, mastered INTEGER DEFAULT 0)');
   db.run('CREATE TABLE IF NOT EXISTS progress (id INTEGER PRIMARY KEY, metric TEXT, value INTEGER)');
-  db.run('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, password TEXT, name TEXT)');
+  db.run('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, email TEXT UNIQUE, password TEXT, name TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)');
   db.run('CREATE TABLE IF NOT EXISTS lessons (id INTEGER PRIMARY KEY, title TEXT, content TEXT, difficulty TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)');
   db.run('CREATE TABLE IF NOT EXISTS user_streaks (id INTEGER PRIMARY KEY, user_id INTEGER, streak_count INTEGER, last_activity DATE)');
   db.run('CREATE TABLE IF NOT EXISTS badges (id INTEGER PRIMARY KEY, user_id INTEGER, badge_name TEXT, earned_at DATETIME DEFAULT CURRENT_TIMESTAMP)');
   db.run('CREATE TABLE IF NOT EXISTS leaderboard (id INTEGER PRIMARY KEY, user_id INTEGER, score INTEGER, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)');
   db.run('CREATE TABLE IF NOT EXISTS app_settings (id INTEGER PRIMARY KEY, setting_key TEXT UNIQUE, setting_value TEXT)');
+  
+  // User-specific settings table
+  db.run(`CREATE TABLE IF NOT EXISTS user_settings (
+    id INTEGER PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    setting_key TEXT NOT NULL,
+    setting_value TEXT NOT NULL,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, setting_key)
+  )`);
+  
+  // User progress tracking table
+  db.run(`CREATE TABLE IF NOT EXISTS user_progress (
+    id INTEGER PRIMARY KEY,
+    user_id TEXT NOT NULL UNIQUE,
+    streak INTEGER DEFAULT 0,
+    total_messages INTEGER DEFAULT 0,
+    vocabulary_level INTEGER DEFAULT 1,
+    grammar_level INTEGER DEFAULT 1,
+    speaking_level INTEGER DEFAULT 1,
+    writing_level INTEGER DEFAULT 1,
+    lessons_completed INTEGER DEFAULT 0,
+    badges_earned INTEGER DEFAULT 0,
+    last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
+    skill_progress TEXT DEFAULT '{}',
+    weekly_stats TEXT DEFAULT '{}',
+    achievements TEXT DEFAULT '[]',
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+  
+  // User achievements table
+  db.run(`CREATE TABLE IF NOT EXISTS user_achievements (
+    id INTEGER PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    achievement_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    icon_name TEXT NOT NULL,
+    achievement_type TEXT NOT NULL,
+    earned_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, achievement_id)
+  )`);
   
   // Initialize default AI model setting
   db.run('INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES (?, ?)', 
@@ -173,6 +215,358 @@ app.post('/settings/voice', (req, res) => {
     voice_autoplay_enabled,
     voice_input_enabled,
     message: 'Voice settings updated successfully'
+  });
+});
+
+// User-specific settings endpoints
+app.get('/user/:userId/settings', (req, res) => {
+  const { userId } = req.params;
+  
+  db.all('SELECT setting_key, setting_value FROM user_settings WHERE user_id = ?', [userId], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    // Convert rows to key-value object
+    const settings = {};
+    rows.forEach(row => {
+      // Parse boolean values
+      if (row.setting_value === 'true' || row.setting_value === 'false') {
+        settings[row.setting_key] = row.setting_value === 'true';
+      } else {
+        settings[row.setting_key] = row.setting_value;
+      }
+    });
+    
+    // Set default values if not found
+    const defaultSettings = {
+      voice_autoplay_enabled: true,
+      voice_input_enabled: true,
+      notifications_enabled: true,
+      daily_reminder: true,
+      selected_ai_model: 'deepseek/deepseek-chat-v3-0324:free'
+    };
+    
+    res.json({
+      settings: { ...defaultSettings, ...settings },
+      message: 'User settings retrieved successfully'
+    });
+  });
+});
+
+app.post('/user/:userId/settings', (req, res) => {
+  const { userId } = req.params;
+  const settings = req.body;
+  
+  if (!settings || typeof settings !== 'object') {
+    return res.status(400).json({ error: 'Settings must be provided as an object' });
+  }
+  
+  const stmt = db.prepare('INSERT OR REPLACE INTO user_settings (user_id, setting_key, setting_value, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)');
+  
+  try {
+    db.serialize(() => {
+      for (const [key, value] of Object.entries(settings)) {
+        stmt.run(userId, key, value.toString());
+      }
+    });
+    stmt.finalize();
+    
+    res.json({
+      success: true,
+      settings,
+      message: 'User settings updated successfully'
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// User progress endpoints
+app.get('/user/:userId/progress', (req, res) => {
+  const { userId } = req.params;
+  
+  db.get('SELECT * FROM user_progress WHERE user_id = ?', [userId], (err, row) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    if (!row) {
+      // Return default progress for new users
+      const defaultProgress = {
+        user_id: userId,
+        streak: 0,
+        total_messages: 0,
+        vocabulary_level: 1,
+        grammar_level: 1,
+        speaking_level: 1,
+        writing_level: 1,
+        lessons_completed: 0,
+        badges_earned: 0,
+        last_activity: new Date().toISOString(),
+        skill_progress: JSON.stringify({
+          vocabulary: 0,
+          grammar: 0,
+          speaking: 0,
+          writing: 0
+        }),
+        weekly_stats: JSON.stringify({
+          messagesThisWeek: 0,
+          lessonsThisWeek: 0,
+          streakThisWeek: 0
+        }),
+        achievements: JSON.stringify([])
+      };
+      
+      return res.json({
+        progress: defaultProgress,
+        message: 'Default progress returned for new user'
+      });
+    }
+    
+    // Parse JSON fields
+    try {
+      row.skill_progress = JSON.parse(row.skill_progress || '{}');
+      row.weekly_stats = JSON.parse(row.weekly_stats || '{}');
+      row.achievements = JSON.parse(row.achievements || '[]');
+    } catch (parseError) {
+      console.error('Error parsing progress JSON fields:', parseError);
+      row.skill_progress = {};
+      row.weekly_stats = {};
+      row.achievements = [];
+    }
+    
+    res.json({
+      progress: row,
+      message: 'User progress retrieved successfully'
+    });
+  });
+});
+
+app.post('/user/:userId/progress', (req, res) => {
+  const { userId } = req.params;
+  const progressData = req.body;
+  
+  if (!progressData || typeof progressData !== 'object') {
+    return res.status(400).json({ error: 'Progress data must be provided as an object' });
+  }
+  
+  // Ensure JSON fields are stringified
+  const skillProgress = JSON.stringify(progressData.skill_progress || {});
+  const weeklyStats = JSON.stringify(progressData.weekly_stats || {});
+  const achievements = JSON.stringify(progressData.achievements || []);
+  
+  const query = `
+    INSERT OR REPLACE INTO user_progress (
+      user_id, streak, total_messages, vocabulary_level, grammar_level, 
+      speaking_level, writing_level, lessons_completed, badges_earned,
+      last_activity, skill_progress, weekly_stats, achievements, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `;
+  
+  const values = [
+    userId,
+    progressData.streak || 0,
+    progressData.total_messages || 0,
+    progressData.vocabulary_level || 1,
+    progressData.grammar_level || 1,
+    progressData.speaking_level || 1,
+    progressData.writing_level || 1,
+    progressData.lessons_completed || 0,
+    progressData.badges_earned || 0,
+    progressData.last_activity || new Date().toISOString(),
+    skillProgress,
+    weeklyStats,
+    achievements
+  ];
+  
+  db.run(query, values, function(err) {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    res.json({
+      success: true,
+      progress: progressData,
+      message: 'User progress updated successfully'
+    });
+  });
+});
+
+// User achievements endpoints
+app.get('/user/:userId/achievements', (req, res) => {
+  const { userId } = req.params;
+  
+  db.all('SELECT * FROM user_achievements WHERE user_id = ? ORDER BY earned_date DESC', [userId], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    res.json({
+      achievements: rows,
+      message: 'User achievements retrieved successfully'
+    });
+  });
+});
+
+app.post('/user/:userId/achievements', (req, res) => {
+  const { userId } = req.params;
+  const { achievement_id, title, description, icon_name, achievement_type } = req.body;
+  
+  if (!achievement_id || !title || !description || !icon_name || !achievement_type) {
+    return res.status(400).json({ 
+      error: 'Missing required fields: achievement_id, title, description, icon_name, achievement_type' 
+    });
+  }
+  
+  db.run(
+    'INSERT OR IGNORE INTO user_achievements (user_id, achievement_id, title, description, icon_name, achievement_type) VALUES (?, ?, ?, ?, ?, ?)',
+    [userId, achievement_id, title, description, icon_name, achievement_type],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      
+      if (this.changes === 0) {
+        return res.json({
+          success: false,
+          message: 'Achievement already exists for this user'
+        });
+      }
+      
+      res.json({
+        success: true,
+        achievement_id: this.lastID,
+        message: 'Achievement added successfully'
+      });
+    }
+  );
+});
+
+// Track message interaction for progress
+app.post('/user/:userId/track-message', (req, res) => {
+  const { userId } = req.params;
+  const { message_content, message_type } = req.body;
+  
+  if (!message_content || !message_type) {
+    return res.status(400).json({ error: 'message_content and message_type are required' });
+  }
+  
+  // Get current progress
+  db.get('SELECT * FROM user_progress WHERE user_id = ?', [userId], (err, currentProgress) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    // Calculate skill improvements based on message
+    const wordCount = message_content.trim().split(' ').length;
+    let skillGains = {};
+    
+    switch (message_type) {
+      case 'chat':
+        skillGains.speaking = Math.ceil(wordCount / 10);
+        skillGains.vocabulary = Math.ceil(wordCount / 15);
+        break;
+      case 'grammar':
+        skillGains.grammar = Math.ceil(wordCount / 8);
+        skillGains.writing = Math.ceil(wordCount / 12);
+        break;
+      case 'vocabulary':
+        skillGains.vocabulary = Math.ceil(wordCount / 5);
+        break;
+      case 'lesson':
+        skillGains.grammar = 1;
+        skillGains.vocabulary = 1;
+        skillGains.writing = 1;
+        break;
+    }
+    
+    // Update or create progress record
+    if (!currentProgress) {
+      // Create new progress record
+      const newProgress = {
+        user_id: userId,
+        streak: 1,
+        total_messages: 1,
+        vocabulary_level: 1,
+        grammar_level: 1,
+        speaking_level: 1,
+        writing_level: 1,
+        lessons_completed: 0,
+        badges_earned: 0,
+        last_activity: new Date().toISOString(),
+        skill_progress: JSON.stringify(skillGains),
+        weekly_stats: JSON.stringify({ messagesThisWeek: 1 }),
+        achievements: JSON.stringify([])
+      };
+      
+      const query = `
+        INSERT INTO user_progress (
+          user_id, streak, total_messages, vocabulary_level, grammar_level,
+          speaking_level, writing_level, lessons_completed, badges_earned,
+          last_activity, skill_progress, weekly_stats, achievements, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `;
+      
+      db.run(query, [
+        newProgress.user_id, newProgress.streak, newProgress.total_messages,
+        newProgress.vocabulary_level, newProgress.grammar_level, newProgress.speaking_level,
+        newProgress.writing_level, newProgress.lessons_completed, newProgress.badges_earned,
+        newProgress.last_activity, newProgress.skill_progress, newProgress.weekly_stats,
+        newProgress.achievements
+      ], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        res.json({
+          success: true,
+          progress: newProgress,
+          message: 'Message tracked and progress initialized'
+        });
+      });
+    } else {
+      // Update existing progress
+      const existingSkillProgress = JSON.parse(currentProgress.skill_progress || '{}');
+      const existingWeeklyStats = JSON.parse(currentProgress.weekly_stats || '{}');
+      
+      // Add skill gains to existing progress
+      Object.keys(skillGains).forEach(skill => {
+        existingSkillProgress[skill] = (existingSkillProgress[skill] || 0) + skillGains[skill];
+      });
+      
+      // Update weekly stats
+      existingWeeklyStats.messagesThisWeek = (existingWeeklyStats.messagesThisWeek || 0) + 1;
+      
+      // Calculate streak (simplified - assumes daily usage)
+      const lastActivity = new Date(currentProgress.last_activity);
+      const today = new Date();
+      const daysDiff = Math.floor((today - lastActivity) / (1000 * 60 * 60 * 24));
+      
+      let newStreak = currentProgress.streak;
+      if (daysDiff === 1) {
+        newStreak++; // Continue streak
+      } else if (daysDiff > 1) {
+        newStreak = 1; // Reset streak
+      }
+      // If same day, keep current streak
+      
+      const updateQuery = `
+        UPDATE user_progress SET 
+          streak = ?, total_messages = ?, last_activity = ?,
+          skill_progress = ?, weekly_stats = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ?
+      `;
+      
+      db.run(updateQuery, [
+        newStreak,
+        currentProgress.total_messages + 1,
+        new Date().toISOString(),
+        JSON.stringify(existingSkillProgress),
+        JSON.stringify(existingWeeklyStats),
+        userId
+      ], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        res.json({
+          success: true,
+          progress: {
+            ...currentProgress,
+            streak: newStreak,
+            total_messages: currentProgress.total_messages + 1,
+            skill_progress: existingSkillProgress,
+            weekly_stats: existingWeeklyStats
+          },
+          message: 'Message tracked and progress updated'
+        });
+      });
+    }
   });
 });
 

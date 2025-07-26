@@ -22,7 +22,8 @@
         "shared_preferences",
         "sign_in_with_apple",
         "speech_to_text",
-        "sqflite"
+        "sqflite",
+        "sqflite_common_ffi"
       ],
       "devDependencies": [
         "flutter_lints",
@@ -93,6 +94,17 @@
       "name": "path",
       "version": "1.9.1",
       "dependencies": []
+    },
+    {
+      "name": "sqflite_common_ffi",
+      "version": "2.3.6",
+      "dependencies": [
+        "meta",
+        "path",
+        "sqflite_common",
+        "sqlite3",
+        "synchronized"
+      ]
     },
     {
       "name": "sqflite",
@@ -482,12 +494,29 @@
       ]
     },
     {
+      "name": "synchronized",
+      "version": "3.4.0",
+      "dependencies": []
+    },
+    {
       "name": "sqflite_common",
       "version": "2.5.5",
       "dependencies": [
         "meta",
         "path",
         "synchronized"
+      ]
+    },
+    {
+      "name": "sqlite3",
+      "version": "2.7.7",
+      "dependencies": [
+        "collection",
+        "ffi",
+        "meta",
+        "path",
+        "typed_data",
+        "web"
       ]
     },
     {
@@ -798,21 +827,16 @@
       ]
     },
     {
-      "name": "synchronized",
-      "version": "3.4.0",
-      "dependencies": []
-    },
-    {
-      "name": "platform",
-      "version": "3.1.6",
-      "dependencies": []
-    },
-    {
       "name": "typed_data",
       "version": "1.4.0",
       "dependencies": [
         "collection"
       ]
+    },
+    {
+      "name": "platform",
+      "version": "3.1.6",
+      "dependencies": []
     },
     {
       "name": "flutter_secure_storage",

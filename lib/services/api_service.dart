@@ -28,12 +28,13 @@ class ApiService {
   }
 
   // Chat with AI
-  static Future<String> sendChatMessage(String message) async {
+  static Future<String> sendChatMessage(String message, {String? conversationId}) async {
     final response = await http.post(
       Uri.parse('$baseUrl/chat'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'message': message,
+        'conversation_id': conversationId,
         'max_words': 100, // Limit response to maximum 100 words
         'response_style': 'concise', // Request concise response style
       }),
@@ -299,6 +300,111 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to update voice settings: ${response.body}');
+    }
+  }
+
+  // CONVERSATION HISTORY API METHODS
+
+  // Save conversation to backend
+  static Future<Map<String, dynamic>> saveConversation({
+    required String conversationId,
+    required String userId,
+    required String title,
+    required List<Map<String, dynamic>> messages,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/conversations'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'conversation_id': conversationId,
+        'user_id': userId,
+        'title': title,
+        'messages': messages,
+      }),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to save conversation: ${response.body}');
+    }
+  }
+
+  // Get user's conversation history
+  static Future<List<dynamic>> getConversationHistory(String userId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/conversations/$userId'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load conversation history: ${response.body}');
+    }
+  }
+
+  // Get specific conversation with messages
+  static Future<Map<String, dynamic>> getConversation(String conversationId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/conversations/details/$conversationId'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load conversation: ${response.body}');
+    }
+  }
+
+  // Update conversation title
+  static Future<Map<String, dynamic>> updateConversationTitle({
+    required String conversationId,
+    required String newTitle,
+  }) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/conversations/$conversationId/title'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'title': newTitle}),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to update conversation title: ${response.body}');
+    }
+  }
+
+  // Delete conversation
+  static Future<Map<String, dynamic>> deleteConversation(String conversationId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/conversations/$conversationId'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to delete conversation: ${response.body}');
+    }
+  }
+
+  // Sync local conversations with backend
+  static Future<Map<String, dynamic>> syncConversations({
+    required String userId,
+    required List<Map<String, dynamic>> localConversations,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/conversations/sync'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'user_id': userId,
+        'local_conversations': localConversations,
+      }),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to sync conversations: ${response.body}');
     }
   }
 }

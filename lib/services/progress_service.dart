@@ -45,6 +45,9 @@ class ProgressService {
     String messageContent,
     String messageType, // 'chat', 'grammar', 'vocabulary', etc.
   ) async {
+    print('ProgressService: Tracking message submission...');
+    print('Current progress: ${currentProgress.totalMessages} messages, streak: ${currentProgress.streak}');
+    
     final now = DateTime.now();
     final updatedProgress = currentProgress.copyWith(
       totalMessages: currentProgress.totalMessages + 1,
@@ -53,12 +56,14 @@ class ProgressService {
 
     // Analyze message for skill improvements
     final skillGains = _analyzeMessageForSkills(messageContent, messageType);
+    print('ProgressService: Skill gains calculated: $skillGains');
     
     // Update skill progress
     final newSkillProgress = Map<String, int>.from(currentProgress.skillProgress);
     skillGains.forEach((skill, gain) {
       newSkillProgress[skill] = (newSkillProgress[skill] ?? 0) + gain;
     });
+    print('ProgressService: Updated skill progress: $newSkillProgress');
 
     // Update weekly stats
     final weeklyStats = Map<String, dynamic>.from(currentProgress.weeklyStats);
@@ -81,9 +86,11 @@ class ProgressService {
       weeklyStats: weeklyStats,
     );
 
+    print('ProgressService: Final progress - Messages: ${finalProgress.totalMessages}, Streak: ${finalProgress.streak}');
     await saveProgress(finalProgress);
     await _checkForNewAchievements(finalProgress);
     
+    print('ProgressService: Progress saved successfully');
     return finalProgress;
   }
 

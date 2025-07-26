@@ -17,10 +17,11 @@ import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io' show Platform;
-import 'config/api_config.dart';
 import 'models/user_progress.dart';
 import 'services/progress_service.dart';
 // Debug: Improved AI suggestions implemented
+// Sqflite FFI initialization for desktop/web
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 class AppState extends ChangeNotifier {
   // Example shared state: current streak
@@ -84,6 +85,12 @@ class _MainScreenState extends State<MainScreen> {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize sqflite for desktop/web
+  if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
   
   runApp(
     ChangeNotifierProvider(
@@ -1502,9 +1509,14 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
+        print('WelcomeScreen: Loading user data for ${user.uid}');
         final progress = await ProgressService.loadProgress(user.uid);
         final achievements = await ProgressService.loadAchievements();
         final skillAnalyses = await ProgressService.generateSkillAnalysis(progress);
+
+        print('WelcomeScreen: Loaded progress - Messages: ${progress.totalMessages}, Streak: ${progress.streak}');
+        print('WelcomeScreen: Loaded ${achievements.length} achievements');
+        print('WelcomeScreen: Generated ${skillAnalyses.length} skill analyses');
 
         if (mounted) {
           setState(() {
@@ -1523,6 +1535,15 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     }
   }
 
+  // Add a method to refresh data when returning to this screen
+  void _refreshData() {
+    print('WelcomeScreen: Refreshing user data...');
+    setState(() {
+      _isLoading = true;
+    });
+    _loadUserData();
+  }
+
   @override
   void dispose() {
     _fadeController.dispose();
@@ -1534,7 +1555,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
     final isWideScreen = screenWidth > 600;
+    final isSmallScreen = screenHeight < 700 || screenWidth < 400;
 
     return Scaffold(
       body: Container(
@@ -1560,17 +1583,37 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                       slivers: [
                         // Header Section
                         SliverAppBar(
-                          expandedHeight: 120,
+                          expandedHeight: isSmallScreen ? 100 : 120,
                           floating: false,
                           pinned: true,
                           backgroundColor: Colors.transparent,
                           elevation: 0,
                           flexibleSpace: FlexibleSpaceBar(
-                            background: _buildHeaderSection(user),
+                            background: _buildHeaderSection(user, isSmallScreen),
                           ),
                           actions: [
                             Container(
-                              margin: const EdgeInsets.only(right: 16),
+                              margin: EdgeInsets.only(right: isSmallScreen ? 8 : 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.9),
+                                borderRadius: BorderRadius.circular(12),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: IconButton(
+                                icon: Icon(Icons.refresh, color: Colors.deepPurple.shade600),
+                                iconSize: isSmallScreen ? 18 : 22,
+                                tooltip: 'Refresh Progress',
+                                onPressed: () => _refreshData(),
+                              ),
+                            ),
+                            Container(
+                              margin: EdgeInsets.only(right: isSmallScreen ? 12 : 16),
                               decoration: BoxDecoration(
                                 color: Colors.white.withOpacity(0.9),
                                 borderRadius: BorderRadius.circular(12),
@@ -1584,6 +1627,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                               ),
                               child: IconButton(
                                 icon: Icon(Icons.logout, color: Colors.deepPurple.shade600),
+                                iconSize: isSmallScreen ? 20 : 24,
                                 onPressed: () async {
                                   await FirebaseAuth.instance.signOut();
                                 },
@@ -1595,8 +1639,11 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                         // Progress Overview Section
                         SliverToBoxAdapter(
                           child: Padding(
-                            padding: EdgeInsets.all(isWideScreen ? 24 : 16),
-                            child: _buildProgressOverview(),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isSmallScreen ? 12 : (isWideScreen ? 24 : 16),
+                              vertical: isSmallScreen ? 8 : 12,
+                            ),
+                            child: _buildProgressOverview(isSmallScreen),
                           ),
                         ),
 
@@ -1604,10 +1651,10 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                         SliverToBoxAdapter(
                           child: Padding(
                             padding: EdgeInsets.symmetric(
-                              horizontal: isWideScreen ? 24 : 16,
-                              vertical: 8,
+                              horizontal: isSmallScreen ? 12 : (isWideScreen ? 24 : 16),
+                              vertical: isSmallScreen ? 4 : 8,
                             ),
-                            child: _buildSkillAnalysisSection(),
+                            child: _buildSkillAnalysisSection(isSmallScreen),
                           ),
                         ),
 
@@ -1615,24 +1662,27 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                         SliverToBoxAdapter(
                           child: Padding(
                             padding: EdgeInsets.symmetric(
-                              horizontal: isWideScreen ? 24 : 16,
-                              vertical: 8,
+                              horizontal: isSmallScreen ? 12 : (isWideScreen ? 24 : 16),
+                              vertical: isSmallScreen ? 4 : 8,
                             ),
-                            child: _buildAchievementsSection(),
+                            child: _buildAchievementsSection(isSmallScreen),
                           ),
                         ),
 
                         // Quick Actions Section
                         SliverToBoxAdapter(
                           child: Padding(
-                            padding: EdgeInsets.all(isWideScreen ? 24 : 16),
-                            child: _buildQuickActionsSection(isWideScreen),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isSmallScreen ? 12 : (isWideScreen ? 24 : 16),
+                              vertical: isSmallScreen ? 8 : 16,
+                            ),
+                            child: _buildQuickActionsSection(isWideScreen, isSmallScreen),
                           ),
                         ),
 
                         // Bottom spacing
-                        const SliverToBoxAdapter(
-                          child: SizedBox(height: 20),
+                        SliverToBoxAdapter(
+                          child: SizedBox(height: isSmallScreen ? 16 : 20),
                         ),
                       ],
                     ),
@@ -1677,35 +1727,40 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     );
   }
 
-  Widget _buildHeaderSection(User? user) {
+  Widget _buildHeaderSection(User? user, bool isSmallScreen) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 60, 24, 20),
+      padding: EdgeInsets.fromLTRB(
+        isSmallScreen ? 16 : 24, 
+        isSmallScreen ? 40 : 60, 
+        isSmallScreen ? 16 : 24, 
+        isSmallScreen ? 12 : 20
+      ),
       child: Row(
         children: [
           // User Avatar
           Container(
-            width: 60,
-            height: 60,
+            width: isSmallScreen ? 50 : 60,
+            height: isSmallScreen ? 50 : 60,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [Colors.deepPurple, Colors.purple.shade400],
               ),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(isSmallScreen ? 15 : 18),
               boxShadow: [
                 BoxShadow(
                   color: Colors.deepPurple.withOpacity(0.3),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
+                  blurRadius: isSmallScreen ? 8 : 12,
+                  offset: Offset(0, isSmallScreen ? 3 : 4),
                 ),
               ],
             ),
             child: Icon(
               Icons.person,
               color: Colors.white,
-              size: 28,
+              size: isSmallScreen ? 24 : 28,
             ),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: isSmallScreen ? 12 : 16),
           
           // Welcome Text
           Expanded(
@@ -1716,16 +1771,16 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                 Text(
                   'Welcome back!',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: isSmallScreen ? 14 : 16,
                     color: Colors.deepPurple.shade600,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 4),
+                SizedBox(height: isSmallScreen ? 2 : 4),
                 Text(
                   user?.displayName ?? user?.email?.split('@')[0] ?? 'Learner',
-                  style: const TextStyle(
-                    fontSize: 22,
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 18 : 22,
                     fontWeight: FontWeight.bold,
                     color: Colors.black87,
                   ),
@@ -1739,7 +1794,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     );
   }
 
-  Widget _buildProgressOverview() {
+  Widget _buildProgressOverview(bool isSmallScreen) {
     if (_userProgress == null) return const SizedBox.shrink();
 
     return Card(
@@ -1758,28 +1813,28 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             ],
           ),
         ),
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Your Learning Journey',
               style: TextStyle(
-                fontSize: 20,
+                fontSize: isSmallScreen ? 18 : 20,
                 fontWeight: FontWeight.bold,
                 color: Colors.deepPurple.shade700,
               ),
             ),
-            const SizedBox(height: 20),
+            SizedBox(height: isSmallScreen ? 16 : 20),
             
             // Progress Stats Grid
             GridView.count(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.2,
+              crossAxisSpacing: isSmallScreen ? 10 : 16,
+              mainAxisSpacing: isSmallScreen ? 10 : 16,
+              childAspectRatio: isSmallScreen ? 1.4 : 1.2,
               children: [
                 _buildStatCard(
                   icon: Icons.local_fire_department,
@@ -1787,6 +1842,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   title: 'Day Streak',
                   value: '${_userProgress!.streak}',
                   subtitle: 'days in a row',
+                  isSmallScreen: isSmallScreen,
                 ),
                 _buildStatCard(
                   icon: Icons.chat_bubble_outline,
@@ -1794,6 +1850,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   title: 'Messages',
                   value: '${_userProgress!.totalMessages}',
                   subtitle: 'conversations',
+                  isSmallScreen: isSmallScreen,
                 ),
                 _buildStatCard(
                   icon: Icons.school,
@@ -1801,6 +1858,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   title: 'Lessons',
                   value: '${_userProgress!.lessonsCompleted}',
                   subtitle: 'completed',
+                  isSmallScreen: isSmallScreen,
                 ),
                 _buildStatCard(
                   icon: Icons.emoji_events,
@@ -1808,6 +1866,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   title: 'Badges',
                   value: '${_achievements.length}',
                   subtitle: 'earned',
+                  isSmallScreen: isSmallScreen,
                 ),
               ],
             ),
@@ -1823,6 +1882,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     required String title,
     required String value,
     required String subtitle,
+    required bool isSmallScreen,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1836,24 +1896,24 @@ class _WelcomeScreenState extends State<WelcomeScreen>
           ),
         ],
       ),
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: isSmallScreen ? 32 : 40,
+            height: isSmallScreen ? 32 : 40,
             decoration: BoxDecoration(
               color: iconColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Icon(icon, color: iconColor, size: 24),
+            child: Icon(icon, color: iconColor, size: isSmallScreen ? 18 : 24),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: isSmallScreen ? 6 : 8),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 20,
+            style: TextStyle(
+              fontSize: isSmallScreen ? 16 : 20,
               fontWeight: FontWeight.bold,
               color: Colors.black87,
             ),
@@ -1861,24 +1921,29 @@ class _WelcomeScreenState extends State<WelcomeScreen>
           Text(
             title,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: isSmallScreen ? 10 : 12,
               fontWeight: FontWeight.w600,
               color: Colors.grey.shade600,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
           Text(
             subtitle,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: isSmallScreen ? 8 : 10,
               color: Colors.grey.shade500,
             ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSkillAnalysisSection() {
+  Widget _buildSkillAnalysisSection(bool isSmallScreen) {
     if (_skillAnalyses.isEmpty) return const SizedBox.shrink();
 
     return Card(
@@ -1897,24 +1962,24 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             ],
           ),
         ),
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Skill Analysis',
               style: TextStyle(
-                fontSize: 20,
+                fontSize: isSmallScreen ? 18 : 20,
                 fontWeight: FontWeight.bold,
                 color: Colors.deepPurple.shade700,
               ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: isSmallScreen ? 12 : 16),
             
             // Skill Progress Bars
             ..._skillAnalyses.map((analysis) => Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: _buildSkillProgressBar(analysis),
+              padding: EdgeInsets.only(bottom: isSmallScreen ? 12 : 16),
+              child: _buildSkillProgressBar(analysis, isSmallScreen),
             )),
           ],
         ),
@@ -1922,7 +1987,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     );
   }
 
-  Widget _buildSkillProgressBar(SkillAnalysis analysis) {
+  Widget _buildSkillProgressBar(SkillAnalysis analysis, bool isSmallScreen) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1931,8 +1996,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
           children: [
             Text(
               analysis.skillName,
-              style: const TextStyle(
-                fontSize: 16,
+              style: TextStyle(
+                fontSize: isSmallScreen ? 14 : 16,
                 fontWeight: FontWeight.w600,
                 color: Colors.black87,
               ),
@@ -1940,27 +2005,27 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             Text(
               '${(analysis.currentLevel * 10).toInt()}%',
               style: TextStyle(
-                fontSize: 14,
+                fontSize: isSmallScreen ? 12 : 14,
                 fontWeight: FontWeight.w500,
                 color: Colors.deepPurple.shade600,
               ),
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: isSmallScreen ? 6 : 8),
         LinearProgressIndicator(
           value: analysis.currentLevel / 10,
           backgroundColor: Colors.grey.shade200,
           valueColor: AlwaysStoppedAnimation<Color>(
             _getSkillColor(analysis.skillName),
           ),
-          minHeight: 8,
+          minHeight: isSmallScreen ? 6 : 8,
         ),
-        const SizedBox(height: 4),
+        SizedBox(height: isSmallScreen ? 3 : 4),
         Text(
           analysis.recommendation,
           style: TextStyle(
-            fontSize: 12,
+            fontSize: isSmallScreen ? 11 : 12,
             color: Colors.grey.shade600,
           ),
         ),
@@ -1978,7 +2043,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     }
   }
 
-  Widget _buildAchievementsSection() {
+  Widget _buildAchievementsSection(bool isSmallScreen) {
     if (_achievements.isEmpty) return const SizedBox.shrink();
 
     return Card(
@@ -1997,24 +2062,24 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             ],
           ),
         ),
-        padding: const EdgeInsets.all(24),
+        padding: EdgeInsets.all(isSmallScreen ? 16 : 24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               'Recent Achievements',
               style: TextStyle(
-                fontSize: 20,
+                fontSize: isSmallScreen ? 18 : 20,
                 fontWeight: FontWeight.bold,
                 color: Colors.deepPurple.shade700,
               ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: isSmallScreen ? 12 : 16),
             
             // Achievement List
             ..._achievements.take(3).map((achievement) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: _buildAchievementItem(achievement),
+              padding: EdgeInsets.only(bottom: isSmallScreen ? 8 : 12),
+              child: _buildAchievementItem(achievement, isSmallScreen),
             )),
             
             if (_achievements.length > 3)
@@ -2027,6 +2092,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   style: TextStyle(
                     color: Colors.deepPurple.shade600,
                     fontWeight: FontWeight.w500,
+                    fontSize: isSmallScreen ? 12 : 14,
                   ),
                 ),
               ),
@@ -2036,9 +2102,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     );
   }
 
-  Widget _buildAchievementItem(Achievement achievement) {
+  Widget _buildAchievementItem(Achievement achievement, bool isSmallScreen) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(isSmallScreen ? 10 : 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
@@ -2053,8 +2119,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       child: Row(
         children: [
           Container(
-            width: 40,
-            height: 40,
+            width: isSmallScreen ? 32 : 40,
+            height: isSmallScreen ? 32 : 40,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [Colors.amber, Colors.orange.shade400],
@@ -2064,18 +2130,18 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             child: Icon(
               _getAchievementIcon(achievement.iconName),
               color: Colors.white,
-              size: 20,
+              size: isSmallScreen ? 16 : 20,
             ),
           ),
-          const SizedBox(width: 12),
+          SizedBox(width: isSmallScreen ? 10 : 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   achievement.title,
-                  style: const TextStyle(
-                    fontSize: 14,
+                  style: TextStyle(
+                    fontSize: isSmallScreen ? 12 : 14,
                     fontWeight: FontWeight.w600,
                     color: Colors.black87,
                   ),
@@ -2083,7 +2149,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                 Text(
                   achievement.description,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: isSmallScreen ? 10 : 12,
                     color: Colors.grey.shade600,
                   ),
                 ),
@@ -2105,77 +2171,102 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     }
   }
 
-  Widget _buildQuickActionsSection(bool isWideScreen) {
+  Widget _buildQuickActionsSection(bool isWideScreen, bool isSmallScreen) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Continue Learning',
           style: TextStyle(
-            fontSize: 20,
+            fontSize: isSmallScreen ? 18 : 20,
             fontWeight: FontWeight.bold,
             color: Colors.deepPurple.shade700,
           ),
         ),
-        const SizedBox(height: 16),
+        SizedBox(height: isSmallScreen ? 12 : 16),
         
         GridView.count(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           crossAxisCount: isWideScreen ? 3 : 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: isWideScreen ? 1.2 : 1.1,
+          crossAxisSpacing: isSmallScreen ? 8 : 12,
+          mainAxisSpacing: isSmallScreen ? 8 : 12,
+          childAspectRatio: isSmallScreen ? 1.4 : (isWideScreen ? 1.3 : 1.2),
           children: [
             _buildActionCard(
               icon: Icons.chat,
               title: 'AI Chat',
               subtitle: 'Practice conversation',
               gradient: [Colors.blue, Colors.blue.shade400],
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ChatbotScreen()),
-              ),
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ChatbotScreen()),
+                );
+                // Refresh data when returning from chat
+                _refreshData();
+              },
+              isSmallScreen: isSmallScreen,
             ),
             _buildActionCard(
               icon: Icons.spellcheck,
               title: 'Grammar',
               subtitle: 'Improve writing',
               gradient: [Colors.green, Colors.green.shade400],
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const GrammarScreen()),
-              ),
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const GrammarScreen()),
+                );
+                // Refresh data when returning from grammar
+                _refreshData();
+              },
+              isSmallScreen: isSmallScreen,
             ),
             _buildActionCard(
               icon: Icons.book,
               title: 'Vocabulary',
               subtitle: 'Learn new words',
               gradient: [Colors.purple, Colors.purple.shade400],
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const VocabScreen()),
-              ),
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const VocabScreen()),
+                );
+                // Refresh data when returning from vocabulary
+                _refreshData();
+              },
+              isSmallScreen: isSmallScreen,
             ),
             _buildActionCard(
               icon: Icons.school,
               title: 'Lessons',
               subtitle: 'Structured learning',
               gradient: [Colors.orange, Colors.orange.shade400],
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const LessonScreen()),
-              ),
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LessonScreen()),
+                );
+                // Refresh data when returning from lessons
+                _refreshData();
+              },
+              isSmallScreen: isSmallScreen,
             ),
             _buildActionCard(
               icon: Icons.bar_chart,
               title: 'Progress',
               subtitle: 'Track improvement',
               gradient: [Colors.teal, Colors.teal.shade400],
-              onTap: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ProgressScreen()),
-              ),
+              onTap: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ProgressScreen()),
+                );
+                // Refresh data when returning from progress
+                _refreshData();
+              },
+              isSmallScreen: isSmallScreen,
             ),
             _buildActionCard(
               icon: Icons.settings,
@@ -2186,6 +2277,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                 context,
                 MaterialPageRoute(builder: (_) => const SettingsScreen()),
               ),
+              isSmallScreen: isSmallScreen,
             ),
           ],
         ),
@@ -2199,6 +2291,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     required String subtitle,
     required List<Color> gradient,
     required VoidCallback onTap,
+    required bool isSmallScreen,
   }) {
     return Card(
       elevation: 6,
@@ -2216,33 +2309,37 @@ class _WelcomeScreenState extends State<WelcomeScreen>
             ),
             borderRadius: BorderRadius.circular(16),
           ),
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(isSmallScreen ? 12 : 16),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 icon,
                 color: Colors.white,
-                size: 32,
+                size: isSmallScreen ? 24 : 32,
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: isSmallScreen ? 6 : 8),
               Text(
                 title,
-                style: const TextStyle(
-                  fontSize: 14,
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 12 : 14,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
                 textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 4),
+              SizedBox(height: isSmallScreen ? 2 : 4),
               Text(
                 subtitle,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: isSmallScreen ? 9 : 11,
                   color: Colors.white.withOpacity(0.9),
                 ),
                 textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
               ),
             ],
           ),
