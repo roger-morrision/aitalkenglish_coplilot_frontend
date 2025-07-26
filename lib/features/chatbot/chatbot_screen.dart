@@ -38,7 +38,16 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
       vsync: this,
     );
     _micAnimationController.repeat();
+    _initTts();
     _loadVoiceSettings();
+  }
+
+  Future<void> _initTts() async {
+    // Configure TTS for automatic playback to match manual audio buttons
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(1.0); // Standard speech rate
+    await _tts.setVolume(0.8);
+    await _tts.setPitch(1.0);
   }
 
   Future<void> _loadVoiceSettings() async {

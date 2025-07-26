@@ -37,39 +37,38 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
     if (_manualTts == null) {
       _manualTts = FlutterTts();
       
-      // Configure TTS for manual playback
+      // Configure TTS for manual playback - match automatic TTS settings
       await _manualTts!.setLanguage('en-US');
-      await _manualTts!.setSpeechRate(0.5);
+      await _manualTts!.setSpeechRate(1.0); // Match the default speed of automatic TTS
       await _manualTts!.setVolume(0.8);
       await _manualTts!.setPitch(1.0);
       
       // Set completion handler
       _manualTts!.setCompletionHandler(() {
         // Reset all widgets to normal state when audio completes
-        _stopAllAudio();
+        for (var widget in _allWidgets) {
+          if (widget.mounted) {
+            widget.setState(() {
+              widget._isPlaying = false;
+            });
+          }
+        }
+        _currentPlayingWidget = null;
       });
       
       // Set error handler
       _manualTts!.setErrorHandler((message) {
         // Reset all widgets to normal state on error
-        _stopAllAudio();
+        for (var widget in _allWidgets) {
+          if (widget.mounted) {
+            widget.setState(() {
+              widget._isPlaying = false;
+            });
+          }
+        }
+        _currentPlayingWidget = null;
       });
     }
-  }
-
-  // Static method to stop all audio and reset all widget states
-  static void _stopAllAudio() {
-    print('AudioPlayButton: Stopping all audio, ${_allWidgets.length} widgets registered');
-    for (var widget in _allWidgets) {
-      if (widget.mounted) {
-        print('AudioPlayButton: Resetting widget state to false');
-        widget.setState(() {
-          widget._isPlaying = false;
-        });
-      }
-    }
-    _currentPlayingWidget = null;
-    print('AudioPlayButton: All widgets reset, currentPlayingWidget cleared');
   }
 
   Future<void> _toggleAudio() async {
@@ -79,14 +78,28 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
       // If this widget is playing, stop it
       print('AudioPlayButton: Stopping current playback');
       await _manualTts?.stop();
-      _stopAllAudio();
+      setState(() {
+        _isPlaying = false;
+      });
+      _currentPlayingWidget = null;
     } else {
-      // Stop all audio first and reset all states
-      print('AudioPlayButton: Starting new playback, stopping all others first');
-      await _manualTts?.stop();
-      _stopAllAudio();
+      // First, stop all other widgets immediately
+      for (var widget in _allWidgets) {
+        if (widget != this && widget.mounted && widget._isPlaying) {
+          widget.setState(() {
+            widget._isPlaying = false;
+          });
+        }
+      }
       
-      // Now start playback for this widget
+      // Stop any playing audio
+      print('AudioPlayButton: Starting new playback, stopping TTS first');
+      await _manualTts?.stop();
+      
+      // Give a small delay to ensure stop is processed
+      await Future.delayed(const Duration(milliseconds: 50));
+      
+      // Now set this widget as playing immediately
       _currentPlayingWidget = this;
       setState(() {
         _isPlaying = true;
@@ -108,11 +121,17 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
           await _manualTts?.speak(cleanText);
         } else {
           print('AudioPlayButton: Empty text, stopping audio');
-          _stopAllAudio();
+          setState(() {
+            _isPlaying = false;
+          });
+          _currentPlayingWidget = null;
         }
       } catch (e) {
         print('TTS Error: $e');
-        _stopAllAudio();
+        setState(() {
+          _isPlaying = false;
+        });
+        _currentPlayingWidget = null;
       }
     }
   }
