@@ -2,16 +2,12 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../models/lesson.dart';
 import 'package:flutter/foundation.dart';
+import '../config/api_config.dart';
 
 class ApiService {
-  // Use different base URL for web vs mobile
+  // Use configuration-based URL
   static String get baseUrl {
-    if (kIsWeb) {
-      // For web, try to use the same origin or a CORS-enabled endpoint
-      return 'http://localhost:3000'; // This might need CORS handling
-    } else {
-      return 'http://localhost:3000';
-    }
+    return ApiConfig.baseUrl;
   }
 
   // Get progress metrics

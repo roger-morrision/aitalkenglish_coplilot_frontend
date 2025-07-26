@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: aitalkenglish-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node backend-server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: OPENROUTER_API_KEY
+        sync: false
