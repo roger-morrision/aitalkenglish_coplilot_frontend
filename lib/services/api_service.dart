@@ -2,6 +2,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../models/lesson.dart';
 import 'package:flutter/foundation.dart';
+import '../config/api_config.dart';
 
 class ApiService {
   // Cache for suggestions to avoid repeated calls
@@ -11,18 +12,18 @@ class ApiService {
   
   // Production backend URL
   static String get baseUrl {
-    return 'https://aitalkenglish-coplilot-backend.onrender.com';
+    return ApiConfig.baseUrl;
   }
 
   // Get progress metrics
   static Future<List<dynamic>> getProgress() async {
-    final response = await http.get(Uri.parse('$baseUrl/progress'));
+    final response = await http.get(Uri.parse('$baseUrl/progress')).timeout(ApiConfig.generalApiTimeout);
     return jsonDecode(response.body);
   }
 
   // Get lesson plan
   static Future<Map<String, dynamic>> getLesson() async {
-    final response = await http.get(Uri.parse('$baseUrl/lesson'));
+    final response = await http.get(Uri.parse('$baseUrl/lesson')).timeout(ApiConfig.generalApiTimeout);
     return jsonDecode(response.body);
   }
 
@@ -36,7 +37,7 @@ class ApiService {
         'max_words': 100, // Limit response to maximum 100 words
         'response_style': 'concise', // Request concise response style
       }),
-    );
+    ).timeout(ApiConfig.chatTimeout); // Use configurable chat timeout
     final data = jsonDecode(response.body);
     return data['reply'] ?? 'Error';
   }
@@ -47,7 +48,7 @@ class ApiService {
       Uri.parse('$baseUrl/grammar'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'sentence': sentence}),
-    );
+    ).timeout(ApiConfig.generalApiTimeout);
     final data = jsonDecode(response.body);
     return data['correction'] ?? 'Error';
   }
@@ -85,7 +86,7 @@ class ApiService {
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'message': message}),
-      ).timeout(const Duration(seconds: 15)); // 15 second timeout
+      ).timeout(ApiConfig.suggestionsTimeout); // Use configurable suggestions timeout
       
       print('API Service: Response status: ${response.statusCode}');
       print('API Service: Response body: ${response.body}');
@@ -237,7 +238,7 @@ class ApiService {
   
   // Get available AI models
   static Future<Map<String, dynamic>> getAvailableModels() async {
-    final response = await http.get(Uri.parse('$baseUrl/settings/models'));
+    final response = await http.get(Uri.parse('$baseUrl/settings/models')).timeout(ApiConfig.generalApiTimeout);
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
@@ -247,7 +248,7 @@ class ApiService {
 
   // Get current selected model
   static Future<Map<String, dynamic>> getCurrentModel() async {
-    final response = await http.get(Uri.parse('$baseUrl/settings/current-model'));
+    final response = await http.get(Uri.parse('$baseUrl/settings/current-model')).timeout(ApiConfig.generalApiTimeout);
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
@@ -261,7 +262,7 @@ class ApiService {
       Uri.parse('$baseUrl/settings/select-model'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'model_id': modelId}),
-    );
+    ).timeout(ApiConfig.generalApiTimeout);
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
@@ -273,7 +274,7 @@ class ApiService {
   
   // Get current voice settings
   static Future<Map<String, dynamic>> getVoiceSettings() async {
-    final response = await http.get(Uri.parse('$baseUrl/settings/voice'));
+    final response = await http.get(Uri.parse('$baseUrl/settings/voice')).timeout(ApiConfig.generalApiTimeout);
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
@@ -293,7 +294,7 @@ class ApiService {
         'voice_autoplay_enabled': voiceAutoplayEnabled,
         'voice_input_enabled': voiceInputEnabled,
       }),
-    );
+    ).timeout(ApiConfig.generalApiTimeout);
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {

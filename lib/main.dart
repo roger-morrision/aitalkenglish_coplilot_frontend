@@ -597,116 +597,462 @@ class _SignInScreenState extends State<SignInScreen> {
   final passwordController = TextEditingController();
   String error = '';
 
+  Widget _buildSocialButton({
+    required IconData icon,
+    required Color color,
+    required String label,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      width: 70,
+      height: 70,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.grey.withOpacity(0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onPressed,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: color, size: 24),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 9,
+                  color: Colors.grey.shade700,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenHeight < 700 || screenWidth < 400;
+    
     return Scaffold(
-      appBar: AppBar(title: const Text('Sign In')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            TextField(
-              controller: emailController,
-              decoration: const InputDecoration(labelText: 'Email'),
-            ),
-            TextField(
-              controller: passwordController,
-              decoration: const InputDecoration(labelText: 'Password'),
-              obscureText: true,
-            ),
-            if (error.isNotEmpty) ...[
-              Text(error, style: const TextStyle(color: Colors.red)),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.deepPurple.shade800,
+              Colors.deepPurple.shade400,
+              Colors.purple.shade300,
             ],
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  await FirebaseAuth.instance.signInWithEmailAndPassword(
-                    email: emailController.text,
-                    password: passwordController.text,
-                  );
-                } catch (e) {
-                  setState(() => error = e.toString());
-                }
-              },
-              child: const Text('Sign In'),
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(
+              horizontal: screenWidth < 350 ? 16 : 24,
+              vertical: isSmallScreen ? 8 : 16,
             ),
-            TextButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const SignUpScreen()),
-                );
-              },
-              child: const Text('Sign Up'),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: screenHeight - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom - 32,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(height: isSmallScreen ? 20 : 40),
+                  // App Logo and Branding
+                  Column(
+                    children: [
+                      // Main Logo Container
+                      Container(
+                        width: isSmallScreen ? 90 : 120,
+                        height: isSmallScreen ? 90 : 120,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(isSmallScreen ? 22 : 30),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: isSmallScreen ? 15 : 20,
+                              offset: Offset(0, isSmallScreen ? 6 : 10),
+                            ),
+                          ],
+                        ),
+                        child: Container(
+                          margin: EdgeInsets.all(isSmallScreen ? 12 : 16),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Colors.deepPurple, Colors.purple.shade600],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(isSmallScreen ? 12 : 16),
+                          ),
+                          child: Icon(
+                            Icons.psychology_outlined,
+                            color: Colors.white,
+                            size: isSmallScreen ? 40 : 50,
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 16 : 24),
+                      // App Name
+                      Text(
+                        'AI Talk English',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 26 : 32,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 6 : 8),
+                      // Tagline
+                      Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: isSmallScreen ? 12 : 16, 
+                          vertical: isSmallScreen ? 4 : 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          'Master English with AI-Powered Learning',
+                          style: TextStyle(
+                            fontSize: isSmallScreen ? 12 : 14,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: isSmallScreen ? 24 : 48),
+                  // Sign In Card
+                  Container(
+                    constraints: BoxConstraints(
+                      maxWidth: screenWidth < 400 ? screenWidth - 32 : 400,
+                    ),
+                    child: Card(
+                      elevation: 12,
+                      shadowColor: Colors.black.withOpacity(0.3),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(24),
+                          gradient: LinearGradient(
+                            colors: [Colors.white, Colors.grey.shade50],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: EdgeInsets.all(isSmallScreen ? 20 : 32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Welcome Back!',
+                                style: TextStyle(
+                                  fontSize: isSmallScreen ? 24 : 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.deepPurple.shade700,
+                                ),
+                              ),
+                              SizedBox(height: isSmallScreen ? 4 : 8),
+                              Text(
+                                'Sign in to continue your learning journey',
+                                style: TextStyle(
+                                  fontSize: isSmallScreen ? 12 : 14,
+                                  color: Colors.grey.shade600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              SizedBox(height: isSmallScreen ? 20 : 32),
+                              // Email Field
+                              Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.grey.withOpacity(0.1),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 5),
+                                    ),
+                                  ],
+                                ),
+                                child: TextField(
+                                  controller: emailController,
+                                  keyboardType: TextInputType.emailAddress,
+                                  style: TextStyle(fontSize: isSmallScreen ? 14 : 16),
+                                  decoration: InputDecoration(
+                                    labelText: 'Email Address',
+                                    labelStyle: TextStyle(fontSize: isSmallScreen ? 14 : 16),
+                                    prefixIcon: Icon(Icons.email_outlined, color: Colors.deepPurple.shade400),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    filled: true,
+                                    fillColor: Colors.grey.shade50,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 20, 
+                                      vertical: isSmallScreen ? 12 : 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(height: isSmallScreen ? 16 : 20),
+                              // Password Field
+                              Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.grey.withOpacity(0.1),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 5),
+                                    ),
+                                  ],
+                                ),
+                                child: TextField(
+                                  controller: passwordController,
+                                  obscureText: true,
+                                  style: TextStyle(fontSize: isSmallScreen ? 14 : 16),
+                                  decoration: InputDecoration(
+                                    labelText: 'Password',
+                                    labelStyle: TextStyle(fontSize: isSmallScreen ? 14 : 16),
+                                    prefixIcon: Icon(Icons.lock_outline, color: Colors.deepPurple.shade400),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    filled: true,
+                                    fillColor: Colors.grey.shade50,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 20, 
+                                      vertical: isSmallScreen ? 12 : 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (error.isNotEmpty) ...[
+                                SizedBox(height: isSmallScreen ? 12 : 16),
+                                Container(
+                                  padding: EdgeInsets.all(isSmallScreen ? 10 : 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.red.shade200),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.error_outline, color: Colors.red.shade600, size: 18),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          error,
+                                          style: TextStyle(
+                                            color: Colors.red.shade700, 
+                                            fontSize: isSmallScreen ? 12 : 14,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              SizedBox(height: isSmallScreen ? 16 : 24),
+                              // Sign In Button
+                              Container(
+                                width: double.infinity,
+                                height: isSmallScreen ? 48 : 56,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [Colors.deepPurple, Colors.purple.shade600],
+                                    begin: Alignment.centerLeft,
+                                    end: Alignment.centerRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.deepPurple.withOpacity(0.3),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 6),
+                                    ),
+                                  ],
+                                ),
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.transparent,
+                                    shadowColor: Colors.transparent,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  onPressed: () async {
+                                    try {
+                                      await FirebaseAuth.instance.signInWithEmailAndPassword(
+                                        email: emailController.text,
+                                        password: passwordController.text,
+                                      );
+                                    } catch (e) {
+                                      setState(() => error = e.toString());
+                                    }
+                                  },
+                                  child: Text(
+                                    'Sign In',
+                                    style: TextStyle(
+                                      fontSize: isSmallScreen ? 16 : 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(height: isSmallScreen ? 12 : 20),
+                              // Navigation Links
+                              Wrap(
+                                alignment: WrapAlignment.center,
+                                children: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.push(context, MaterialPageRoute(builder: (_) => const SignUpScreen()));
+                                    },
+                                    child: Text(
+                                      'Create Account',
+                                      style: TextStyle(
+                                        color: Colors.deepPurple.shade600, 
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: isSmallScreen ? 12 : 14,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(width: isSmallScreen ? 8 : 16),
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.push(context, MaterialPageRoute(builder: (_) => const ResetPasswordScreen()));
+                                    },
+                                    child: Text(
+                                      'Forgot Password?',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600, 
+                                        fontWeight: FontWeight.w500,
+                                        fontSize: isSmallScreen ? 12 : 14,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              SizedBox(height: isSmallScreen ? 16 : 24),
+                              // Divider
+                              Row(
+                                children: [
+                                  Expanded(child: Divider(thickness: 1, color: Colors.grey.shade300)),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                                    child: Text(
+                                      'or continue with',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade600, 
+                                        fontSize: isSmallScreen ? 12 : 14,
+                                      ),
+                                    ),
+                                  ),
+                                  Expanded(child: Divider(thickness: 1, color: Colors.grey.shade300)),
+                                ],
+                              ),
+                              SizedBox(height: isSmallScreen ? 16 : 24),
+                              // Social Sign In Buttons
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                children: [
+                                  _buildSocialButton(
+                                    icon: Icons.login,
+                                    color: Colors.red,
+                                    label: 'Google',
+                                    onPressed: () async { await _signInWithGoogle(); },
+                                  ),
+                                  _buildSocialButton(
+                                    icon: Icons.facebook,
+                                    color: Colors.blue,
+                                    label: 'Facebook',
+                                    onPressed: () async {
+                                      try {
+                                        if (kIsWeb) {
+                                          final auth = FirebaseAuth.instance;
+                                          final provider = FacebookAuthProvider();
+                                          await auth.signInWithPopup(provider);
+                                        } else {
+                                          final result = await FacebookAuth.instance.login();
+                                          final accessToken = result.accessToken;
+                                          if (accessToken != null) {
+                                            final credential = FacebookAuthProvider.credential(accessToken.tokenString);
+                                            await FirebaseAuth.instance.signInWithCredential(credential);
+                                          } else {
+                                            setState(() => error = 'Facebook sign-in failed.');
+                                          }
+                                        }
+                                      } catch (e) {
+                                        setState(() => error = 'Facebook sign-in error: ${e.toString()}');
+                                      }
+                                    },
+                                  ),
+                                  _buildSocialButton(
+                                    icon: Icons.apple,
+                                    color: Colors.black,
+                                    label: 'Apple',
+                                    onPressed: () async {
+                                      try {
+                                        if (kIsWeb || Platform.isIOS || Platform.isMacOS) {
+                                          final credential = await SignInWithApple.getAppleIDCredential(
+                                            scopes: [
+                                              AppleIDAuthorizationScopes.email,
+                                              AppleIDAuthorizationScopes.fullName,
+                                            ],
+                                          );
+                                          final oauthCredential = OAuthProvider("apple.com").credential(
+                                            idToken: credential.identityToken,
+                                            accessToken: credential.authorizationCode,
+                                          );
+                                          await FirebaseAuth.instance.signInWithCredential(oauthCredential);
+                                        } else {
+                                          setState(() => error = 'Apple sign-in is only available on iOS, macOS, and web.');
+                                        }
+                                      } catch (e) {
+                                        setState(() => error = 'Apple sign-in error: ${e.toString()}');
+                                      }
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: isSmallScreen ? 20 : 40),
+                ],
+              ),
             ),
-            TextButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ResetPasswordScreen()),
-                );
-              },
-              child: const Text('Forgot Password?'),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.login),
-              label: const Text('Sign in with Google'),
-              onPressed: () async {
-                await _signInWithGoogle();
-              },
-            ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.facebook),
-              label: const Text('Sign in with Facebook'),
-              onPressed: () async {
-                try {
-                  if (kIsWeb) {
-                    final auth = FirebaseAuth.instance;
-                    final provider = FacebookAuthProvider();
-                    await auth.signInWithPopup(provider);
-                  } else {
-                    final result = await FacebookAuth.instance.login();
-                    final accessToken = result.accessToken;
-                    if (accessToken != null) {
-                    final credential = FacebookAuthProvider.credential(accessToken.tokenString);
-                      await FirebaseAuth.instance.signInWithCredential(credential);
-                    } else {
-                      setState(() => error = 'Facebook sign-in failed.');
-                    }
-                  }
-                } catch (e) {
-                  setState(() => error = 'Facebook sign-in error: \\n${e.toString()}');
-                }
-              },
-            ),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.apple),
-              label: const Text('Sign in with Apple'),
-              onPressed: () async {
-                try {
-                  if (kIsWeb || Platform.isIOS || Platform.isMacOS) {
-                    final credential = await SignInWithApple.getAppleIDCredential(
-                      scopes: [
-                        AppleIDAuthorizationScopes.email,
-                        AppleIDAuthorizationScopes.fullName,
-                      ],
-                    );
-                    final oauthCredential = OAuthProvider("apple.com").credential(
-                      idToken: credential.identityToken,
-                      accessToken: credential.authorizationCode,
-                    );
-                    await FirebaseAuth.instance.signInWithCredential(oauthCredential);
-                  } else {
-                    setState(() => error = 'Apple sign-in is only available on iOS, macOS, and web.');
-                  }
-                } catch (e) {
-                  setState(() => error = 'Apple sign-in error: ${e.toString()}');
-                }
-              },
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -728,48 +1074,305 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenHeight < 700 || screenWidth < 400;
+    
     return Scaffold(
-      appBar: AppBar(title: const Text('Sign Up')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            TextField(
-              controller: emailController,
-              decoration: const InputDecoration(labelText: 'Email'),
-            ),
-            TextField(
-              controller: passwordController,
-              decoration: const InputDecoration(labelText: 'Password'),
-              obscureText: true,
-            ),
-            if (error.isNotEmpty) ...[
-              Text(error, style: const TextStyle(color: Colors.red)),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Colors.deepPurple.shade800,
+              Colors.deepPurple.shade400,
+              Colors.purple.shade300,
             ],
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  await FirebaseAuth.instance.createUserWithEmailAndPassword(
-                    email: emailController.text,
-                    password: passwordController.text,
-                  );
-                  if (context.mounted) {
-                    Navigator.pop(context); // Go back to sign in
-                  }
-                } catch (e) {
-                  setState(() => error = e.toString());
-                }
-              },
-              child: const Text('Sign Up'),
+          ),
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(
+              horizontal: screenWidth < 350 ? 16 : 24,
+              vertical: isSmallScreen ? 8 : 16,
             ),
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
-              child: const Text('Back to Sign In'),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: screenHeight - MediaQuery.of(context).padding.top - MediaQuery.of(context).padding.bottom - 32,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  SizedBox(height: isSmallScreen ? 20 : 40),
+                  // App Logo and Branding
+                  Column(
+                    children: [
+                      // Main Logo Container
+                      Container(
+                        width: isSmallScreen ? 80 : 100,
+                        height: isSmallScreen ? 80 : 100,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(isSmallScreen ? 20 : 25),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: isSmallScreen ? 12 : 15,
+                              offset: Offset(0, isSmallScreen ? 6 : 8),
+                            ),
+                          ],
+                        ),
+                        child: Container(
+                          margin: EdgeInsets.all(isSmallScreen ? 10 : 12),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Colors.deepPurple, Colors.purple.shade600],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            borderRadius: BorderRadius.circular(isSmallScreen ? 12 : 15),
+                          ),
+                          child: Icon(
+                            Icons.psychology_outlined,
+                            color: Colors.white,
+                            size: isSmallScreen ? 32 : 40,
+                          ),
+                        ),
+                      ),
+                      SizedBox(height: isSmallScreen ? 16 : 20),
+                      // App Name
+                      Text(
+                        'AI Talk English',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 24 : 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: isSmallScreen ? 24 : 40),
+                  // Sign Up Card
+                  Container(
+                    constraints: BoxConstraints(
+                      maxWidth: screenWidth < 400 ? screenWidth - 32 : 400,
+                    ),
+                    child: Card(
+                      elevation: 12,
+                      shadowColor: Colors.black.withOpacity(0.3),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(24),
+                          gradient: LinearGradient(
+                            colors: [Colors.white, Colors.grey.shade50],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ),
+                        ),
+                        child: Padding(
+                          padding: EdgeInsets.all(isSmallScreen ? 20 : 32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                'Join Us Today!',
+                                style: TextStyle(
+                                  fontSize: isSmallScreen ? 24 : 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.deepPurple.shade700,
+                                ),
+                              ),
+                              SizedBox(height: isSmallScreen ? 4 : 8),
+                              Text(
+                                'Create your account and start learning',
+                                style: TextStyle(
+                                  fontSize: isSmallScreen ? 12 : 14,
+                                  color: Colors.grey.shade600,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              SizedBox(height: isSmallScreen ? 20 : 32),
+                              // Email Field
+                              Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.grey.withOpacity(0.1),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 5),
+                                    ),
+                                  ],
+                                ),
+                                child: TextField(
+                                  controller: emailController,
+                                  keyboardType: TextInputType.emailAddress,
+                                  style: TextStyle(fontSize: isSmallScreen ? 14 : 16),
+                                  decoration: InputDecoration(
+                                    labelText: 'Email Address',
+                                    labelStyle: TextStyle(fontSize: isSmallScreen ? 14 : 16),
+                                    prefixIcon: Icon(Icons.email_outlined, color: Colors.deepPurple.shade400),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    filled: true,
+                                    fillColor: Colors.grey.shade50,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 20, 
+                                      vertical: isSmallScreen ? 12 : 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(height: isSmallScreen ? 16 : 20),
+                              // Password Field
+                              Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.grey.withOpacity(0.1),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 5),
+                                    ),
+                                  ],
+                                ),
+                                child: TextField(
+                                  controller: passwordController,
+                                  obscureText: true,
+                                  style: TextStyle(fontSize: isSmallScreen ? 14 : 16),
+                                  decoration: InputDecoration(
+                                    labelText: 'Password',
+                                    labelStyle: TextStyle(fontSize: isSmallScreen ? 14 : 16),
+                                    prefixIcon: Icon(Icons.lock_outline, color: Colors.deepPurple.shade400),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    filled: true,
+                                    fillColor: Colors.grey.shade50,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 20, 
+                                      vertical: isSmallScreen ? 12 : 16,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (error.isNotEmpty) ...[
+                                SizedBox(height: isSmallScreen ? 12 : 16),
+                                Container(
+                                  padding: EdgeInsets.all(isSmallScreen ? 10 : 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.red.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: Colors.red.shade200),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.error_outline, color: Colors.red.shade600, size: 18),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          error,
+                                          style: TextStyle(
+                                            color: Colors.red.shade700, 
+                                            fontSize: isSmallScreen ? 12 : 14,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              SizedBox(height: isSmallScreen ? 16 : 24),
+                              // Sign Up Button
+                              Container(
+                                width: double.infinity,
+                                height: isSmallScreen ? 48 : 56,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [Colors.deepPurple, Colors.purple.shade600],
+                                    begin: Alignment.centerLeft,
+                                    end: Alignment.centerRight,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.deepPurple.withOpacity(0.3),
+                                      blurRadius: 12,
+                                      offset: const Offset(0, 6),
+                                    ),
+                                  ],
+                                ),
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.transparent,
+                                    shadowColor: Colors.transparent,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  onPressed: () async {
+                                    try {
+                                      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+                                        email: emailController.text,
+                                        password: passwordController.text,
+                                      );
+                                      if (context.mounted) {
+                                        Navigator.pop(context); // Go back to sign in
+                                      }
+                                    } catch (e) {
+                                      setState(() => error = e.toString());
+                                    }
+                                  },
+                                  child: Text(
+                                    'Create Account',
+                                    style: TextStyle(
+                                      fontSize: isSmallScreen ? 16 : 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(height: isSmallScreen ? 16 : 20),
+                              // Back to Sign In
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                },
+                                child: RichText(
+                                  text: TextSpan(
+                                    text: 'Already have an account? ',
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600, 
+                                      fontSize: isSmallScreen ? 12 : 14,
+                                    ),
+                                    children: [
+                                      TextSpan(
+                                        text: 'Sign In',
+                                        style: TextStyle(
+                                          color: Colors.deepPurple.shade600,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: isSmallScreen ? 20 : 40),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       ),
     );
