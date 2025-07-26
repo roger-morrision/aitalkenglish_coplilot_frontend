@@ -1601,6 +1601,7 @@ file:///workspaces/aitalkenglish_coplilot_frontend/lib/services/api_service.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/services/lesson_db_service.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/services/notification_service.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/services/spaced_repetition_service.dart
+file:///workspaces/aitalkenglish_coplilot_frontend/lib/widgets/audio_player.dart
 org-dartlang-sdk:///dart-sdk/lib/_http/crypto.dart
 org-dartlang-sdk:///dart-sdk/lib/_http/embedder_config.dart
 org-dartlang-sdk:///dart-sdk/lib/_http/http.dart

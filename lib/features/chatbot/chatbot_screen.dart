@@ -3,6 +3,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
 import '../../services/api_service.dart';
 import '../settings/settings_screen.dart';
+import '../../widgets/audio_player.dart';
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({super.key});
@@ -819,13 +820,28 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                       ),
                     ],
                   ),
-                  child: Text(
-                    message.text,
-                    style: TextStyle(
-                      color: message.isUser ? Colors.white : Colors.grey[800],
-                      fontSize: 14,
-                      height: 1.4,
-                    ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          message.text,
+                          style: TextStyle(
+                            color: message.isUser ? Colors.white : Colors.grey[800],
+                            fontSize: 14,
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                      // Audio icon for AI responses
+                      if (!message.isUser) ...[
+                        const SizedBox(width: 8),
+                        AudioPlayButton(
+                          text: message.text,
+                          size: 18,
+                          color: Colors.grey[600],
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
@@ -926,12 +942,25 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.green[200]!),
                     ),
-                    child: Text(
-                      message.suggestions!.grammarFix,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.green[800],
-                      ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            message.suggestions!.grammarFix,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.green[800],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        AudioPlayButton(
+                          text: message.suggestions!.grammarFix,
+                          size: 16,
+                          mini: true,
+                          color: Colors.green[700],
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -948,24 +977,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                     ),
                   ),
                   const SizedBox(height: 4),
-                  ...message.suggestions!.betterVersions.map((version) => 
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Row(
-                        children: [
-                          Icon(Icons.arrow_right, size: 16, color: Colors.orange[600]),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              version,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: Colors.orange[800],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                  ...message.suggestions!.betterVersions.asMap().entries.map((entry) => 
+                    BetterVersionItem(
+                      text: entry.value,
+                      index: entry.key,
                     ),
                   ).toList(),
                   const SizedBox(height: 12),
@@ -983,46 +998,10 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                   ),
                   const SizedBox(height: 8),
                   ...message.suggestions!.vocabulary.map((vocab) => 
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.purple[50],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.purple[200]!),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            vocab.word,
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.purple[800],
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            vocab.meaning,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.purple[700],
-                            ),
-                          ),
-                          if (vocab.example.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              'Example: ${vocab.example}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontStyle: FontStyle.italic,
-                                color: Colors.purple[600],
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
+                    VocabularyAudioItem(
+                      word: vocab.word,
+                      meaning: vocab.meaning,
+                      example: vocab.example,
                     ),
                   ).toList(),
                 ],
