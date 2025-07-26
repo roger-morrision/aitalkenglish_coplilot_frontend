@@ -4,6 +4,11 @@ import '../models/lesson.dart';
 import 'package:flutter/foundation.dart';
 
 class ApiService {
+  // Cache for suggestions to avoid repeated calls
+  static final Map<String, Map<String, dynamic>> _suggestionsCache = {};
+  static final Map<String, DateTime> _cacheTimestamps = {};
+  static const Duration _cacheExpiry = Duration(minutes: 10); // Cache for 10 minutes
+  
   // Production backend URL
   static String get baseUrl {
     return 'https://aitalkenglish-coplilot-backend.onrender.com';
@@ -43,10 +48,27 @@ class ApiService {
     return data['correction'] ?? 'Error';
   }
 
-  // Get message suggestions (grammar, better versions, vocabulary)
+  // Get message suggestions (grammar, better versions, vocabulary) with caching
   static Future<Map<String, dynamic>> getMessageSuggestions(String message) async {
     print('=== API SERVICE DEBUG ===');
     print('API Service: getMessageSuggestions called with message: $message');
+    
+    // Check cache first
+    final cacheKey = message.toLowerCase().trim();
+    if (_suggestionsCache.containsKey(cacheKey)) {
+      final timestamp = _cacheTimestamps[cacheKey];
+      if (timestamp != null && DateTime.now().difference(timestamp) < _cacheExpiry) {
+        print('API Service: Returning cached result for: $message');
+        print('=== END API SERVICE DEBUG ===');
+        return _suggestionsCache[cacheKey]!;
+      } else {
+        // Remove expired cache
+        _suggestionsCache.remove(cacheKey);
+        _cacheTimestamps.remove(cacheKey);
+      }
+    }
+    
+    print('API Service: Making fresh request for: $message');
     print('API Service: Using baseUrl: $baseUrl');
     print('API Service: Running on web: $kIsWeb');
     
@@ -54,19 +76,24 @@ class ApiService {
       final uri = Uri.parse('$baseUrl/suggestions');
       print('API Service: Making request to: $uri');
       
-      // Use the same simple configuration as working chat endpoint
+      // Add timeout to prevent hanging
       final response = await http.post(
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'message': message}),
-      );
+      ).timeout(const Duration(seconds: 15)); // 15 second timeout
       
       print('API Service: Response status: ${response.statusCode}');
       print('API Service: Response body: ${response.body}');
       
       if (response.statusCode == 200) {
         final parsed = jsonDecode(response.body);
-        print('API Service: Successfully parsed response: $parsed');
+        
+        // Cache the result
+        _suggestionsCache[cacheKey] = parsed;
+        _cacheTimestamps[cacheKey] = DateTime.now();
+        
+        print('API Service: Successfully parsed and cached response: $parsed');
         print('=== END API SERVICE DEBUG ===');
         return parsed;
       } else {
@@ -79,6 +106,23 @@ class ApiService {
       print('=== END API SERVICE DEBUG ===');
       rethrow; // Let the UI handle the error
     }
+  }
+
+  // Clear suggestions cache (useful for testing or memory management)
+  static void clearSuggestionsCache() {
+    _suggestionsCache.clear();
+    _cacheTimestamps.clear();
+    print('API Service: Suggestions cache cleared');
+  }
+
+  // Get cache statistics
+  static Map<String, int> getCacheStats() {
+    return {
+      'cached_items': _suggestionsCache.length,
+      'expired_items': _cacheTimestamps.values
+          .where((timestamp) => DateTime.now().difference(timestamp) >= _cacheExpiry)
+          .length,
+    };
   }
 
   // Get vocabulary list

@@ -24,6 +24,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
   bool _isTyping = false;
   bool _isBackendConnected = true;
   bool _isSuggestionsEnabled = true; // New setting for suggestions panel
+  final Set<int> _loadingSuggestions = {}; // Track which messages are loading suggestions
   
   // Voice settings
   bool _voiceAutoplayEnabled = true;
@@ -76,19 +77,66 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     
     final aiResponse = await _getAIResponse(text);
     
-    // Get suggestions for the user's message only if enabled
-    _MessageSuggestions? suggestions;
+    // Show AI response immediately with optimistic loading placeholder
+    final aiMessageIndex = _messages.length;
+    
+    // Create placeholder suggestions to show immediately
+    final placeholderSuggestions = _MessageSuggestions(
+      grammarFix: 'Analyzing grammar...',
+      betterVersions: [
+        'Finding alternative expressions...',
+        'Generating better versions...',
+      ],
+      vocabulary: [
+        _VocabularyItem(
+          word: 'Loading...', 
+          meaning: 'Analyzing vocabulary...', 
+          example: 'Finding relevant examples...'
+        )
+      ],
+    );
+    
+    setState(() {
+      _messages.add(_ChatMessage(
+        text: aiResponse, 
+        isUser: false, 
+        suggestions: _isSuggestionsEnabled ? placeholderSuggestions : null
+      ));
+      _isTyping = false;
+      // Start loading suggestions for this message
+      if (_isSuggestionsEnabled) {
+        _loadingSuggestions.add(aiMessageIndex);
+      }
+    });
+    _scrollToBottom();
+    
+    // Auto-play AI response if enabled
+    if (_voiceAutoplayEnabled) {
+      await _tts.speak(aiResponse);
+    }
+    
+    // Get suggestions for the user's message asynchronously if enabled
     if (_isSuggestionsEnabled) {
       try {
         print('Chatbot: Requesting suggestions for message: $text');
         final suggestionsData = await ApiService.getMessageSuggestions(text);
         print('Chatbot: Received suggestions: $suggestionsData');
-        suggestions = _MessageSuggestions.fromJson(suggestionsData);
+        final suggestions = _MessageSuggestions.fromJson(suggestionsData);
         print('Chatbot: Suggestions parsed: ${suggestions.grammarFix}');
+        
+        // Update the AI message with suggestions by replacing it
+        setState(() {
+          _messages[aiMessageIndex] = _ChatMessage(
+            text: aiResponse, 
+            isUser: false, 
+            suggestions: suggestions
+          );
+          _loadingSuggestions.remove(aiMessageIndex); // Clear loading state
+        });
       } catch (e) {
         print('Chatbot: Error getting suggestions: $e');
         // Show error-specific fallback with correct data types
-        suggestions = _MessageSuggestions(
+        final errorSuggestions = _MessageSuggestions(
           grammarFix: 'Could not fetch suggestions from server',
           betterVersions: [
             'Error: Unable to get alternative expressions - ${e.toString()}',
@@ -103,18 +151,17 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
             )
           ],
         );
+        
+        // Update the AI message with error suggestions by replacing it
+        setState(() {
+          _messages[aiMessageIndex] = _ChatMessage(
+            text: aiResponse, 
+            isUser: false, 
+            suggestions: errorSuggestions
+          );
+          _loadingSuggestions.remove(aiMessageIndex); // Clear loading state
+        });
       }
-    }
-    
-    setState(() {
-      _messages.add(_ChatMessage(text: aiResponse, isUser: false, suggestions: suggestions));
-      _isTyping = false;
-    });
-    _scrollToBottom();
-    
-    // Auto-play AI response if enabled
-    if (_voiceAutoplayEnabled) {
-      await _tts.speak(aiResponse);
     }
   }
 
@@ -576,8 +623,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                         return _buildTypingIndicator();
                       }
                       final msgIndex = _isTyping ? index - 1 : index;
-                      final msg = _messages[_messages.length - 1 - msgIndex];
-                      return _buildMessageWithSuggestions(msg);
+                      final actualMessageIndex = _messages.length - 1 - msgIndex;
+                      final msg = _messages[actualMessageIndex];
+                      return _buildMessageWithSuggestions(msg, actualMessageIndex);
                     },
                   ),
           ),
@@ -778,7 +826,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     );
   }
 
-  Widget _buildMessageWithSuggestions(_ChatMessage message) {
+  Widget _buildMessageWithSuggestions(_ChatMessage message, int messageIndex) {
     return Column(
       children: [
         // Main message bubble
@@ -838,6 +886,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                         AudioPlayButton(
                           text: message.text,
                           size: 18,
+                          mini: true,
                           color: Colors.grey[600],
                         ),
                       ],
@@ -865,8 +914,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
           ),
         ),
         
-        // Suggestions panel (only for AI messages with suggestions)
-        if (!message.isUser && message.suggestions != null)
+        // Suggestions panel (for AI messages - show loading or actual suggestions)
+        if (!message.isUser && (_isSuggestionsEnabled && (_loadingSuggestions.contains(messageIndex) || message.suggestions != null)))
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             padding: const EdgeInsets.all(16),
@@ -897,17 +946,48 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                         Container(
                           padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: Colors.green[100],
+                            color: _loadingSuggestions.contains(messageIndex) 
+                                ? Colors.orange[100] 
+                                : Colors.green[100],
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.green[300]!),
-                          ),
-                          child: Text(
-                            'ON',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.green[700],
+                            border: Border.all(
+                              color: _loadingSuggestions.contains(messageIndex) 
+                                ? Colors.orange[300]! 
+                                : Colors.green[300]!
                             ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_loadingSuggestions.contains(messageIndex)) ...[
+                                SizedBox(
+                                  width: 10,
+                                  height: 10,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.orange[700]!),
+                                  ),
+                                ),
+                                SizedBox(width: 4),
+                                Text(
+                                  'LOADING...',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.orange[700],
+                                  ),
+                                ),
+                              ] else ...[
+                                Text(
+                                  'ON',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green[700],
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ],
@@ -924,8 +1004,11 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                 ),
                 const SizedBox(height: 12),
                 
-                // Grammar Fix Section
-                if (message.suggestions!.grammarFix.isNotEmpty) ...[
+                // Show loading or actual content
+                if (_loadingSuggestions.contains(messageIndex)) ...[
+                  // Show placeholder content while loading instead of loading indicators
+                  
+                  // Grammar Fix Section with placeholder
                   Text(
                     '✏️ Grammar Check',
                     style: TextStyle(
@@ -945,29 +1028,34 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                     child: Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            message.suggestions!.grammarFix,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.green[800],
-                            ),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.green[600]!),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Analyzing grammar patterns...',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.green[700],
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        AudioPlayButton(
-                          text: message.suggestions!.grammarFix,
-                          size: 16,
-                          mini: true,
-                          color: Colors.green[700],
                         ),
                       ],
                     ),
                   ),
                   const SizedBox(height: 12),
-                ],
-                
-                // Better Versions Section
-                if (message.suggestions!.betterVersions.isNotEmpty) ...[
+                  
+                  // Better Versions Section with placeholder
                   Text(
                     '💡 Alternative Expressions',
                     style: TextStyle(
@@ -977,17 +1065,38 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                     ),
                   ),
                   const SizedBox(height: 4),
-                  ...message.suggestions!.betterVersions.asMap().entries.map((entry) => 
-                    BetterVersionItem(
-                      text: entry.value,
-                      index: entry.key,
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.orange[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.orange[200]!),
                     ),
-                  ).toList(),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.orange[600]!),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Generating better alternatives...',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.orange[700],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: 12),
-                ],
-                
-                // Vocabulary Section
-                if (message.suggestions!.vocabulary.isNotEmpty) ...[
+                  
+                  // Vocabulary Section with placeholder
                   Text(
                     '📖 New Vocabulary',
                     style: TextStyle(
@@ -996,14 +1105,120 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                       color: Colors.purple[700],
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  ...message.suggestions!.vocabulary.map((vocab) => 
-                    VocabularyAudioItem(
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.purple[50],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.purple[200]!),
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.purple[600]!),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Finding relevant vocabulary...',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.purple[700],
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else if (message.suggestions != null) ...[
+                  // Actual suggestions content
+                  
+                  // Grammar Fix Section
+                  if (message.suggestions!.grammarFix.isNotEmpty) ...[
+                    Text(
+                      '✏️ Grammar Check',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.green[700],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.green[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.green[200]!),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              message.suggestions!.grammarFix,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: Colors.green[800],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          AudioPlayButton(
+                            text: message.suggestions!.grammarFix,
+                            size: 16,
+                            mini: true,
+                            color: Colors.green[700],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  
+                  // Better Versions Section
+                  if (message.suggestions!.betterVersions.isNotEmpty) ...[
+                    Text(
+                      '💡 Alternative Expressions',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.orange[700],
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ...message.suggestions!.betterVersions.asMap().entries.map((entry) => 
+                      BetterVersionItem(
+                        text: entry.value,
+                        index: entry.key,
+                      ),
+                    ).toList(),
+                    const SizedBox(height: 12),
+                  ],
+                  
+                  // Vocabulary Section
+                  if (message.suggestions!.vocabulary.isNotEmpty) ...[
+                    Text(
+                      '📖 New Vocabulary',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.purple[700],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ...message.suggestions!.vocabulary.map((vocab) => 
+                      VocabularyAudioItem(
                       word: vocab.word,
                       meaning: vocab.meaning,
                       example: vocab.example,
                     ),
                   ).toList(),
+                  ],
                 ],
               ],
             ),

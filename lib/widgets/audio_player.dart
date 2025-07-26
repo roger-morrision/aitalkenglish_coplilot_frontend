@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import 'dart:math' as math;
 
 class AudioPlayButton extends StatefulWidget {
   final String text;
@@ -21,11 +22,14 @@ class AudioPlayButton extends StatefulWidget {
 
 class _AudioPlayButtonState extends State<AudioPlayButton> {
   static FlutterTts? _manualTts; // Separate TTS instance for manual playback
+  static _AudioPlayButtonState? _currentPlayingWidget; // Track which widget is playing
+  static final Set<_AudioPlayButtonState> _allWidgets = {}; // Track all audio widgets
   bool _isPlaying = false;
   
   @override
   void initState() {
     super.initState();
+    _allWidgets.add(this); // Register this widget
     _initTts();
   }
 
@@ -41,36 +45,53 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
       
       // Set completion handler
       _manualTts!.setCompletionHandler(() {
-        if (mounted) {
-          setState(() {
-            _isPlaying = false;
-          });
-        }
+        // Reset all widgets to normal state when audio completes
+        _stopAllAudio();
       });
       
       // Set error handler
       _manualTts!.setErrorHandler((message) {
-        if (mounted) {
-          setState(() {
-            _isPlaying = false;
-          });
-        }
+        // Reset all widgets to normal state on error
+        _stopAllAudio();
       });
     }
   }
 
+  // Static method to stop all audio and reset all widget states
+  static void _stopAllAudio() {
+    print('AudioPlayButton: Stopping all audio, ${_allWidgets.length} widgets registered');
+    for (var widget in _allWidgets) {
+      if (widget.mounted) {
+        print('AudioPlayButton: Resetting widget state to false');
+        widget.setState(() {
+          widget._isPlaying = false;
+        });
+      }
+    }
+    _currentPlayingWidget = null;
+    print('AudioPlayButton: All widgets reset, currentPlayingWidget cleared');
+  }
+
   Future<void> _toggleAudio() async {
+    print('AudioPlayButton: Toggle audio called, current state: $_isPlaying');
+    
     if (_isPlaying) {
-      // Stop current playback
+      // If this widget is playing, stop it
+      print('AudioPlayButton: Stopping current playback');
       await _manualTts?.stop();
-      setState(() {
-        _isPlaying = false;
-      });
+      _stopAllAudio();
     } else {
-      // Start playback
+      // Stop all audio first and reset all states
+      print('AudioPlayButton: Starting new playback, stopping all others first');
+      await _manualTts?.stop();
+      _stopAllAudio();
+      
+      // Now start playback for this widget
+      _currentPlayingWidget = this;
       setState(() {
         _isPlaying = true;
       });
+      print('AudioPlayButton: Set playing state to true, starting TTS');
       
       try {
         // Clean text for better TTS
@@ -83,17 +104,15 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
             .trim();
         
         if (cleanText.isNotEmpty) {
+          print('AudioPlayButton: Speaking text: ${cleanText.substring(0, math.min(50, cleanText.length))}...');
           await _manualTts?.speak(cleanText);
         } else {
-          setState(() {
-            _isPlaying = false;
-          });
+          print('AudioPlayButton: Empty text, stopping audio');
+          _stopAllAudio();
         }
       } catch (e) {
         print('TTS Error: $e');
-        setState(() {
-          _isPlaying = false;
-        });
+        _stopAllAudio();
       }
     }
   }
@@ -128,7 +147,13 @@ class _AudioPlayButtonState extends State<AudioPlayButton> {
 
   @override
   void dispose() {
-    // Don't dispose the static TTS instance as it's shared
+    // Unregister this widget
+    _allWidgets.remove(this);
+    
+    // Clear reference if this widget was the currently playing one
+    if (_currentPlayingWidget == this) {
+      _currentPlayingWidget = null;
+    }
     super.dispose();
   }
 }
