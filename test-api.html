@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+</head>
+<body>
+    <h1>API Test</h1>
+    <button onclick="testAPI()">Test Suggestions API</button>
+    <pre id="result"></pre>
+
+    <script>
+        async function testAPI() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = 'Testing...';
+            
+            try {
+                const response = await fetch('http://localhost:3000/suggestions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: 'hello world test from browser'
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.textContent = 'SUCCESS:\n' + JSON.stringify(data, null, 2);
+                } else {
+                    resultDiv.textContent = 'ERROR: ' + response.status + ' - ' + response.statusText;
+                }
+            } catch (error) {
+                resultDiv.textContent = 'FETCH ERROR: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>

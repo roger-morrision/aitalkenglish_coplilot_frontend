@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
-import '../../widgets/environment_banner.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -548,9 +547,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         
                         const SizedBox(height: 24),
-                        
-                        // Environment Debug Info (only in non-production)
-                        const EnvironmentDebugInfo(),
                         
                         // Info Panel
                         Container(

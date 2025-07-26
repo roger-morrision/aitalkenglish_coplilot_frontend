@@ -17,7 +17,6 @@ import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io' show Platform;
-import 'widgets/environment_banner.dart';
 import 'config/api_config.dart';
 // Debug: Improved AI suggestions implemented
 
@@ -102,14 +101,7 @@ void main() async {
             children: [
               Container(
                 color: Colors.deepPurple.shade50, // Fallback background
-                child: Column(
-                  children: [
-                    // Environment banner (only shown in dev/staging)
-                    const EnvironmentBanner(),
-                    // Main app content
-                    Expanded(child: child ?? const SizedBox()),
-                  ],
-                ),
+                child: child ?? const SizedBox(),
               ),
               // Global loading overlay
               Consumer<AppState>(

@@ -2,12 +2,11 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../models/lesson.dart';
 import 'package:flutter/foundation.dart';
-import '../config/api_config.dart';
 
 class ApiService {
-  // Use configuration-based URL
+  // Production backend URL
   static String get baseUrl {
-    return ApiConfig.baseUrl;
+    return 'https://aitalkenglish-coplilot-backend.onrender.com';
   }
 
   // Get progress metrics

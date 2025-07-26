@@ -34,9 +34,6 @@ migrate_working_dir/
 **/ios/Flutter/flutter_export_environment.sh
 .pub-cache/
 .pub/
-# Ignore build directories except web deployment
-build/
-!build/web/
 
 # Symbolication related
 app.*.symbols

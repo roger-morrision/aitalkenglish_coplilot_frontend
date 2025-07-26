@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test API Endpoints</title>
+</head>
+<body>
+    <h1>Test Chat vs Suggestions</h1>
+    
+    <div>
+        <h2>Test Chat Endpoint</h2>
+        <button onclick="testChat()">Test Chat API</button>
+        <pre id="chatResult"></pre>
+    </div>
+    
+    <div>
+        <h2>Test Suggestions Endpoint</h2>
+        <button onclick="testSuggestions()">Test Suggestions API</button>
+        <pre id="suggestionsResult"></pre>
+    </div>
+
+    <script>
+        async function testChat() {
+            const resultDiv = document.getElementById('chatResult');
+            resultDiv.textContent = 'Testing chat...';
+            
+            try {
+                const response = await fetch('http://localhost:3000/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: 'hello world test from chat'
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.textContent = 'CHAT SUCCESS:\n' + JSON.stringify(data, null, 2);
+                } else {
+                    resultDiv.textContent = 'CHAT ERROR: ' + response.status + ' - ' + response.statusText;
+                }
+            } catch (error) {
+                resultDiv.textContent = 'CHAT FETCH ERROR: ' + error.message;
+            }
+        }
+        
+        async function testSuggestions() {
+            const resultDiv = document.getElementById('suggestionsResult');
+            resultDiv.textContent = 'Testing suggestions...';
+            
+            try {
+                const response = await fetch('http://localhost:3000/suggestions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: 'hello world test from suggestions'
+                    })
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.textContent = 'SUGGESTIONS SUCCESS:\n' + JSON.stringify(data, null, 2);
+                } else {
+                    resultDiv.textContent = 'SUGGESTIONS ERROR: ' + response.status + ' - ' + response.statusText;
+                }
+            } catch (error) {
+                resultDiv.textContent = 'SUGGESTIONS FETCH ERROR: ' + error.message;
+            }
+        }
+    </script>
+</body>
+</html>
