@@ -31,7 +31,11 @@ class ApiService {
     final response = await http.post(
       Uri.parse('$baseUrl/chat'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'message': message}),
+      body: jsonEncode({
+        'message': message,
+        'max_words': 100, // Limit response to maximum 100 words
+        'response_style': 'concise', // Request concise response style
+      }),
     );
     final data = jsonDecode(response.body);
     return data['reply'] ?? 'Error';
