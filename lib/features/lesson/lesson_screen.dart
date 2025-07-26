@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/lesson_db_service.dart';
+import '../../services/progress_service.dart';
 import '../../models/lesson.dart';
 
 class LessonScreen extends StatefulWidget {
@@ -53,6 +55,22 @@ class _LessonScreenState extends State<LessonScreen> {
 
   Future<void> _completeLesson(int id) async {
     await LessonDbService.completeLesson(id);
+    
+    // Track lesson completion progress
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final currentProgress = await ProgressService.loadProgress(user.uid);
+        final updatedProgress = currentProgress.copyWith(
+          lessonsCompleted: currentProgress.lessonsCompleted + 1,
+          lastActivity: DateTime.now(),
+        );
+        await ProgressService.saveProgress(updatedProgress);
+      }
+    } catch (e) {
+      print('Error tracking lesson completion: $e');
+    }
+    
     await _loadLessons();
   }
 

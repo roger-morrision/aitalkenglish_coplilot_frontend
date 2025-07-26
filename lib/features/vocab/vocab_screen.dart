@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../../services/progress_service.dart';
 import 'flashcard_screen.dart';
 
 class VocabScreen extends StatefulWidget {
@@ -40,6 +42,17 @@ class _VocabScreenState extends State<VocabScreen> {
     final word = _wordController.text.trim();
     final meaning = _meaningController.text.trim();
     if (word.isEmpty || meaning.isEmpty) return;
+    
+    // Track user progress
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final currentProgress = await ProgressService.loadProgress(user.uid);
+        await ProgressService.trackMessageSubmission(currentProgress, '$word: $meaning', 'vocabulary');
+      }
+    } catch (e) {
+      print('Error tracking progress: $e');
+    }
     
     setState(() => _loading = true);
     

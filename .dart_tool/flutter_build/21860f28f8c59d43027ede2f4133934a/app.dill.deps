@@ -502,6 +502,14 @@ file:///home/vscode/.pub-cache/hosted/pub.dev/provider-6.1.5/lib/src/proxy_provi
 file:///home/vscode/.pub-cache/hosted/pub.dev/provider-6.1.5/lib/src/reassemble_handler.dart
 file:///home/vscode/.pub-cache/hosted/pub.dev/provider-6.1.5/lib/src/selector.dart
 file:///home/vscode/.pub-cache/hosted/pub.dev/provider-6.1.5/lib/src/value_listenable_provider.dart
+file:///home/vscode/.pub-cache/hosted/pub.dev/shared_preferences-2.5.3/lib/shared_preferences.dart
+file:///home/vscode/.pub-cache/hosted/pub.dev/shared_preferences-2.5.3/lib/src/shared_preferences_async.dart
+file:///home/vscode/.pub-cache/hosted/pub.dev/shared_preferences-2.5.3/lib/src/shared_preferences_devtools_extension_data.dart
+file:///home/vscode/.pub-cache/hosted/pub.dev/shared_preferences-2.5.3/lib/src/shared_preferences_legacy.dart
+file:///home/vscode/.pub-cache/hosted/pub.dev/shared_preferences_platform_interface-2.4.1/lib/method_channel_shared_preferences.dart
+file:///home/vscode/.pub-cache/hosted/pub.dev/shared_preferences_platform_interface-2.4.1/lib/shared_preferences_async_platform_interface.dart
+file:///home/vscode/.pub-cache/hosted/pub.dev/shared_preferences_platform_interface-2.4.1/lib/shared_preferences_platform_interface.dart
+file:///home/vscode/.pub-cache/hosted/pub.dev/shared_preferences_platform_interface-2.4.1/lib/types.dart
 file:///home/vscode/.pub-cache/hosted/pub.dev/sign_in_with_apple-6.1.4/lib/sign_in_with_apple.dart
 file:///home/vscode/.pub-cache/hosted/pub.dev/sign_in_with_apple-6.1.4/lib/src/sign_in_with_apple.dart
 file:///home/vscode/.pub-cache/hosted/pub.dev/sign_in_with_apple-6.1.4/lib/src/widgets/apple_logo_painter.dart
@@ -1597,9 +1605,11 @@ file:///workspaces/aitalkenglish_coplilot_frontend/lib/firebase_options.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/google_sign_in_helper_web.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/main.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/models/lesson.dart
+file:///workspaces/aitalkenglish_coplilot_frontend/lib/models/user_progress.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/services/api_service.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/services/lesson_db_service.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/services/notification_service.dart
+file:///workspaces/aitalkenglish_coplilot_frontend/lib/services/progress_service.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/services/spaced_repetition_service.dart
 file:///workspaces/aitalkenglish_coplilot_frontend/lib/widgets/audio_player.dart
 org-dartlang-sdk:///dart-sdk/lib/_http/crypto.dart

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/api_service.dart';
+import '../../services/progress_service.dart';
 import '../settings/settings_screen.dart';
 import '../../widgets/audio_player.dart';
 
@@ -75,6 +77,17 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
 
   void _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
+    
+    // Track user progress
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final currentProgress = await ProgressService.loadProgress(user.uid);
+        await ProgressService.trackMessageSubmission(currentProgress, text, 'chat');
+      }
+    } catch (e) {
+      print('Error tracking progress: $e');
+    }
     
     final userMessage = _ChatMessage(text: text, isUser: true);
     setState(() {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/api_service.dart';
+import '../../services/progress_service.dart';
 
 class GrammarScreen extends StatefulWidget {
   const GrammarScreen({super.key});
@@ -17,6 +19,18 @@ class _GrammarScreenState extends State<GrammarScreen> {
   void _checkGrammar() async {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
+    
+    // Track user progress
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final currentProgress = await ProgressService.loadProgress(user.uid);
+        await ProgressService.trackMessageSubmission(currentProgress, text, 'grammar');
+      }
+    } catch (e) {
+      print('Error tracking progress: $e');
+    }
+    
     setState(() {
       _loading = true;
       _error = null;
