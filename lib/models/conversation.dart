@@ -20,14 +20,14 @@ class Conversation {
   factory Conversation.fromJson(Map<String, dynamic> json) {
     return Conversation(
       id: json['id'],
-      userId: json['user_id'],
+      userId: json['userId'] ?? json['user_id'],
       title: json['title'],
-      createdAt: DateTime.parse(json['created_at']),
-      updatedAt: DateTime.parse(json['updated_at']),
+      createdAt: DateTime.parse(json['createdAt'] ?? json['created_at']),
+      updatedAt: DateTime.parse(json['updatedAt'] ?? json['updated_at']),
       messages: (json['messages'] as List<dynamic>?)
           ?.map((messageJson) => ChatMessage.fromJson(messageJson))
           .toList() ?? [],
-      isActive: json['is_active'] ?? false,
+      isActive: json['isActive'] ?? json['is_active'] ?? false,
     );
   }
 
@@ -120,24 +120,193 @@ class Conversation {
   // Get user messages count (for progress tracking)
   int get userMessageCount => messages.where((m) => m.isUser).length;
 
+  // Public method to generate title from message
+  static String generateTitleFromMessage(String message) {
+    return _generateTitleFromMessage(message);
+  }
+
   static String _generateConversationId() {
     return 'conv_${DateTime.now().millisecondsSinceEpoch}_${(1000 + DateTime.now().microsecond % 9000)}';
   }
 
   static String _generateTitleFromMessage(String message) {
-    if (message.length <= 30) return message;
+    if (message.trim().isEmpty) return 'New Conversation';
     
-    // Try to find a good breaking point
-    final words = message.split(' ');
-    if (words.length <= 4) return message;
+    // Clean the message
+    final cleanMessage = message.trim();
     
-    var title = '';
-    for (int i = 0; i < words.length && title.length < 25; i++) {
-      if (i > 0) title += ' ';
-      title += words[i];
+    // If message is short enough, use it as is
+    if (cleanMessage.length <= 40) {
+      return _capitalizeTitle(cleanMessage);
     }
     
-    return '$title...';
+    // Extract key information for title generation
+    final title = _extractMeaningfulTitle(cleanMessage);
+    return title.isNotEmpty ? title : _fallbackTitle(cleanMessage);
+  }
+  
+  static String _extractMeaningfulTitle(String message) {
+    final lowerMessage = message.toLowerCase();
+    
+    // Question patterns - extract the topic
+    if (lowerMessage.startsWith('how ') || lowerMessage.startsWith('what ') || 
+        lowerMessage.startsWith('why ') || lowerMessage.startsWith('when ') ||
+        lowerMessage.startsWith('where ') || lowerMessage.startsWith('which ')) {
+      return _extractQuestionTopic(message);
+    }
+    
+    // Topic indicators
+    final topicPatterns = {
+      'learn about': 'Learning about',
+      'tell me about': 'About',
+      'explain': 'Explaining',
+      'help me': 'Help with',
+      'practice': 'Practice',
+      'grammar': 'Grammar Help',
+      'vocabulary': 'Vocabulary',
+      'pronunciation': 'Pronunciation',
+      'conversation': 'Conversation Practice',
+      'translate': 'Translation',
+      'correct': 'Correction',
+    };
+    
+    for (final pattern in topicPatterns.keys) {
+      if (lowerMessage.contains(pattern)) {
+        final remaining = message.substring(lowerMessage.indexOf(pattern) + pattern.length).trim();
+        final topic = _extractTopicFromText(remaining);
+        return topic.isNotEmpty ? '${topicPatterns[pattern]}: $topic' : topicPatterns[pattern]!;
+      }
+    }
+    
+    // Country/Location patterns
+    final countryMatch = _extractCountryOrLocation(message);
+    if (countryMatch.isNotEmpty) {
+      return 'About $countryMatch';
+    }
+    
+    // Activity patterns
+    final activityMatch = _extractActivity(message);
+    if (activityMatch.isNotEmpty) {
+      return activityMatch;
+    }
+    
+    return '';
+  }
+  
+  static String _extractQuestionTopic(String question) {
+    final words = question.split(' ');
+    if (words.length < 3) return _capitalizeTitle(question);
+    
+    // Find the main topic after the question word
+    final mainPart = words.skip(1).take(6).join(' ');
+    final cleanTopic = mainPart.replaceAll(RegExp(r'[?.!]+$'), '').trim();
+    
+    if (cleanTopic.length > 30) {
+      return '${words[0].capitalize()} ${cleanTopic.substring(0, 27)}...';
+    }
+    
+    return '${words[0].capitalize()} $cleanTopic';
+  }
+  
+  static String _extractTopicFromText(String text) {
+    if (text.isEmpty) return '';
+    
+    // Remove common sentence starters and get the main topic
+    final cleanText = text.replaceAll(RegExp(r'^(the|a|an|some|my|this|that)\s+', caseSensitive: false), '');
+    final words = cleanText.split(' ').take(4).toList();
+    
+    // Remove trailing punctuation
+    final lastWord = words.last.replaceAll(RegExp(r'[?.!,]+$'), '');
+    if (words.isNotEmpty) {
+      words[words.length - 1] = lastWord;
+    }
+    
+    final result = words.join(' ');
+    return result.length > 25 ? '${result.substring(0, 22)}...' : result;
+  }
+  
+  static String _extractCountryOrLocation(String message) {
+    final commonCountries = [
+      'malaysia', 'singapore', 'thailand', 'indonesia', 'philippines', 
+      'vietnam', 'cambodia', 'laos', 'myanmar', 'brunei',
+      'china', 'japan', 'korea', 'india', 'australia', 'new zealand',
+      'united states', 'america', 'canada', 'mexico', 'brazil',
+      'england', 'britain', 'france', 'germany', 'italy', 'spain',
+      'russia', 'turkey', 'egypt', 'south africa'
+    ];
+    
+    final lowerMessage = message.toLowerCase();
+    for (final country in commonCountries) {
+      if (lowerMessage.contains(country)) {
+        return country.split(' ').map((word) => word.capitalize()).join(' ');
+      }
+    }
+    
+    return '';
+  }
+  
+  static String _extractActivity(String message) {
+    final activities = {
+      'cooking': 'Cooking',
+      'traveling': 'Travel',
+      'shopping': 'Shopping',
+      'studying': 'Study',
+      'working': 'Work',
+      'eating': 'Food',
+      'restaurant': 'Dining',
+      'hotel': 'Hotel',
+      'airport': 'Travel',
+      'hospital': 'Medical',
+      'school': 'Education',
+      'university': 'Education',
+      'business': 'Business',
+      'meeting': 'Meetings',
+      'interview': 'Interview',
+      'job': 'Career',
+      'movie': 'Entertainment',
+      'music': 'Music',
+      'sports': 'Sports',
+      'exercise': 'Fitness',
+      'weather': 'Weather',
+      'family': 'Family',
+      'friend': 'Friends',
+      'holiday': 'Holiday',
+      'vacation': 'Vacation',
+      'birthday': 'Celebration',
+      'wedding': 'Wedding',
+    };
+    
+    final lowerMessage = message.toLowerCase();
+    for (final activity in activities.keys) {
+      if (lowerMessage.contains(activity)) {
+        return activities[activity]!;
+      }
+    }
+    
+    return '';
+  }
+  
+  static String _fallbackTitle(String message) {
+    // Get first meaningful words
+    final words = message.split(' ');
+    final meaningfulWords = words.where((word) => 
+      word.length > 2 && 
+      !['the', 'and', 'but', 'for', 'are', 'you', 'can', 'will', 'with'].contains(word.toLowerCase())
+    ).take(4).toList();
+    
+    if (meaningfulWords.isNotEmpty) {
+      final title = meaningfulWords.join(' ');
+      return title.length > 30 ? '${title.substring(0, 27)}...' : _capitalizeTitle(title);
+    }
+    
+    // Final fallback - just use first few words
+    final firstWords = words.take(4).join(' ');
+    return firstWords.length > 30 ? '${firstWords.substring(0, 27)}...' : _capitalizeTitle(firstWords);
+  }
+  
+  static String _capitalizeTitle(String text) {
+    if (text.isEmpty) return text;
+    return text[0].toUpperCase() + text.substring(1);
   }
 }
 
@@ -161,9 +330,9 @@ class ChatMessage {
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
     return ChatMessage(
       id: json['id'],
-      conversationId: json['conversation_id'],
+      conversationId: json['conversationId'] ?? json['conversation_id'],
       content: json['content'],
-      isUser: json['is_user'],
+      isUser: json['isUser'] ?? json['is_user'],
       timestamp: DateTime.parse(json['timestamp']),
       metadata: json['metadata'],
     );
@@ -260,10 +429,18 @@ class ConversationSummary {
     return ConversationSummary(
       id: json['id'],
       title: json['title'],
-      lastMessagePreview: json['last_message_preview'],
-      updatedAt: DateTime.parse(json['updated_at']),
-      messageCount: json['message_count'],
-      isActive: json['is_active'] ?? false,
+      lastMessagePreview: json['lastMessagePreview'] ?? json['last_message_preview'] ?? 'No messages yet',
+      updatedAt: DateTime.parse(json['updatedAt'] ?? json['updated_at']),
+      messageCount: json['messageCount'] ?? json['message_count'] ?? 0,
+      isActive: json['isActive'] ?? json['is_active'] ?? false,
     );
+  }
+}
+
+// String extension for capitalize
+extension StringExtension on String {
+  String capitalize() {
+    if (isEmpty) return this;
+    return this[0].toUpperCase() + substring(1).toLowerCase();
   }
 }

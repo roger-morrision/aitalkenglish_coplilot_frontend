@@ -11,7 +11,7 @@ class ApiConfig {
   static const String productionBackendUrl = 'https://aitalkenglish-coplilot-backend.onrender.com';
   
   // Current environment - Change this to switch environments
-  static const Environment currentEnvironment = Environment.production;
+  static const Environment currentEnvironment = Environment.development;
   
   // Default timeout settings (in seconds) - can be overridden by environment variables
   static const int _defaultChatTimeoutSeconds = 120; // 2 minutes

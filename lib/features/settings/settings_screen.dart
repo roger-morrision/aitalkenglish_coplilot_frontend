@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/api_service.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -36,13 +37,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       setState(() => _isVoiceSettingsLoading = true);
       
-      final voiceSettings = await ApiService.getVoiceSettings();
-      
-      setState(() {
-        _voiceAutoplayEnabled = voiceSettings['voice_autoplay_enabled'] ?? true;
-        _voiceInputEnabled = voiceSettings['voice_input_enabled'] ?? true;
-        _isVoiceSettingsLoading = false;
-      });
+      // Get user settings from backend
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final userSettings = await ApiService.getUserSettings(user.uid);
+        
+        setState(() {
+          _voiceAutoplayEnabled = userSettings['voice_autoplay_enabled'] ?? true;
+          _voiceInputEnabled = userSettings['voice_input_enabled'] ?? true;
+          _isVoiceSettingsLoading = false;
+        });
+      } else {
+        setState(() => _isVoiceSettingsLoading = false);
+      }
     } catch (e) {
       print('Error loading voice settings: $e');
       setState(() => _isVoiceSettingsLoading = false);
@@ -61,13 +68,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       setState(() => _isVoiceSettingsLoading = true);
       
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        setState(() => _isVoiceSettingsLoading = false);
+        return;
+      }
+      
       final newAutoplay = autoplay ?? _voiceAutoplayEnabled;
       final newVoiceInput = voiceInput ?? _voiceInputEnabled;
       
-      await ApiService.updateVoiceSettings(
-        voiceAutoplayEnabled: newAutoplay,
-        voiceInputEnabled: newVoiceInput,
-      );
+      // Save user settings to backend
+      await ApiService.saveUserSettings(user.uid, {
+        'voice_autoplay_enabled': newAutoplay,
+        'voice_input_enabled': newVoiceInput,
+      });
       
       setState(() {
         _voiceAutoplayEnabled = newAutoplay;
@@ -77,9 +91,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Voice settings updated successfully'),
+          const SnackBar(
+            content: Text('Voice settings updated successfully!'),
             backgroundColor: Colors.green,
+            duration: Duration(seconds: 2),
           ),
         );
       }
@@ -101,19 +116,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       setState(() => _isLoading = true);
       
-      // Load available models
-      final modelsData = await ApiService.getAvailableModels();
-      final models = (modelsData['available'] as List)
-          .map((model) => AIModel.fromJson(model))
-          .toList();
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
       
-      // Load current selected model
-      final currentModelData = await ApiService.getCurrentModel();
-      final currentModel = AIModel.fromJson(currentModelData['model_info']);
+      // Load available models from global settings
+      final modelsResponse = await ApiService.getAvailableModels();
+      final modelsList = modelsResponse['models'] as List<dynamic>? ?? [];
+      
+      // Load user's selected model from user settings
+      final userSettings = await ApiService.getUserSettings(user.uid);
+      final selectedModelId = userSettings['selected_ai_model'] ?? 'deepseek/deepseek-chat-v3-0324:free';
       
       setState(() {
-        _availableModels = models;
-        _selectedModel = currentModel;
+        _availableModels = modelsList.map((model) => AIModel.fromJson(model)).toList();
+        _selectedModel = _availableModels.firstWhere(
+          (model) => model.id == selectedModelId,
+          orElse: () => _availableModels.isNotEmpty ? _availableModels.first : AIModel(
+            id: 'deepseek/deepseek-chat-v3-0324:free',
+            name: 'DeepSeek Chat',
+            description: 'Default AI model',
+            provider: 'DeepSeek',
+            tier: 'free',
+          ),
+        );
         _isLoading = false;
       });
     } catch (e) {
@@ -123,7 +151,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to load AI models: $e'),
-            backgroundColor: Colors.red,
+            backgroundColor: Colors.orange,
           ),
         );
       }
@@ -136,7 +164,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       setState(() => _isUpdating = true);
       
-      await ApiService.selectModel(model.id);
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        setState(() => _isUpdating = false);
+        return;
+      }
+      
+      // Save the selected model to user settings
+      await ApiService.saveUserSettings(user.uid, {
+        'selected_ai_model': model.id,
+      });
       
       setState(() {
         _selectedModel = model;

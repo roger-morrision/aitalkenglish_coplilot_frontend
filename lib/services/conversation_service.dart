@@ -1,12 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/conversation.dart';
-import '../services/conversation_db_service.dart';
 import '../services/api_service.dart';
 
 class ConversationService {
-  static const int MAX_LOCAL_CONVERSATIONS = 50; // Limit local storage
-  static const int SYNC_BATCH_SIZE = 10; // Batch size for syncing
-
   // Get current user ID
   static String? get currentUserId => FirebaseAuth.instance.currentUser?.uid;
 
@@ -25,22 +21,24 @@ class ConversationService {
     );
 
     try {
-      // Save to backend first (primary storage)
-      await _saveConversationToBackend(conversation);
-      print('Conversation saved to backend: ${conversation.id}');
+      // Save to backend
+      await ApiService.saveConversation(
+        conversationId: conversation.id,
+        userId: userId,
+        title: conversation.title,
+        messages: conversation.messages.map((msg) => msg.toJson()).toList(),
+      );
+      
+      // Activate the new conversation
+      await ApiService.activateConversation(
+        conversationId: conversation.id,
+        userId: userId,
+      );
+      
+      print('Conversation created and activated: ${conversation.id}');
     } catch (e) {
-      print('Failed to save conversation to backend: $e');
-      // Fallback to local storage if backend fails
-      await ConversationDbService.createConversation(conversation);
-      print('Conversation saved locally as fallback: ${conversation.id}');
-    }
-    
-    // Always save locally for quick access (cache)
-    try {
-      await ConversationDbService.createConversation(conversation);
-      await ConversationDbService.setActiveConversation(userId, conversation.id);
-    } catch (e) {
-      print('Warning: Failed to cache conversation locally: $e');
+      print('Failed to create conversation: $e');
+      rethrow;
     }
 
     return conversation;
@@ -54,7 +52,7 @@ class ConversationService {
     if (userId == null) throw Exception('User not authenticated');
 
     try {
-      // Try to get conversations from backend first (primary source)
+      // Get conversations from backend
       final backendConversations = await ApiService.getConversationHistory(userId);
       
       // Convert backend data to conversation summaries
@@ -67,21 +65,11 @@ class ConversationService {
         }
       }).where((summary) => summary != null).cast<ConversationSummary>().toList();
 
-      // Update local cache with backend data
-      try {
-        await _syncBackendToLocal(backendConversations);
-      } catch (e) {
-        print('Warning: Failed to sync backend data to local cache: $e');
-      }
-
       print('Loaded ${summaries.length} conversations from backend');
       return summaries;
     } catch (e) {
-      print('Failed to load conversations from backend: $e, falling back to local cache');
-      
-      // Fallback to local conversations
-      final localConversations = await ConversationDbService.getUserConversations(userId);
-      return localConversations;
+      print('Failed to load conversations from backend: $e');
+      rethrow;
     }
   }
 
@@ -91,33 +79,24 @@ class ConversationService {
     if (userId == null) return null;
 
     try {
-      // Try to get from backend first
+      // Get all conversations to find the active one
       final conversations = await ApiService.getConversationHistory(userId);
       final activeConversationData = conversations.firstWhere(
-        (conv) => conv['is_active'] == true,
+        (conv) => conv['isActive'] == true || conv['is_active'] == true,
         orElse: () => null,
       );
 
       if (activeConversationData != null) {
         // Get full conversation details from backend
         final fullConversation = await ApiService.getConversation(activeConversationData['id']);
-        final conversation = Conversation.fromJson(fullConversation);
-        
-        // Cache locally for quick access
-        try {
-          await _cacheConversationLocally(conversation);
-        } catch (e) {
-          print('Warning: Failed to cache conversation locally: $e');
-        }
-        
-        return conversation;
+        return Conversation.fromJson(fullConversation);
       }
+      
+      return null;
     } catch (e) {
-      print('Failed to get active conversation from backend: $e, trying local cache');
+      print('Failed to get active conversation from backend: $e');
+      return null;
     }
-
-    // Fallback to local storage
-    return await ConversationDbService.getActiveConversation(userId);
   }
 
   // Load a specific conversation and set it as active
@@ -126,28 +105,25 @@ class ConversationService {
     if (userId == null) throw Exception('User not authenticated');
 
     try {
-      // Try to get from backend first
-      final backendConversation = await ApiService.getConversation(conversationId);
-      final conversation = Conversation.fromJson(backendConversation);
+      print('ConversationService: Loading conversation $conversationId for user $userId');
       
-      // Cache locally
-      await _cacheConversationLocally(conversation);
+      // Get conversation from backend
+      final backendConversation = await ApiService.getConversation(conversationId);
+      print('ConversationService: Backend returned conversation data: ${backendConversation.toString()}');
+      
+      final conversation = Conversation.fromJson(backendConversation);
+      print('ConversationService: Parsed conversation with ${conversation.messages.length} messages');
       
       // Set as active on backend
-      // Note: We'll need to add this API endpoint
-      // For now, just set locally
-      await ConversationDbService.setActiveConversation(userId, conversationId);
+      await ApiService.activateConversation(
+        conversationId: conversationId,
+        userId: userId,
+      );
       
       return conversation;
     } catch (e) {
-      print('Failed to load conversation from backend: $e, trying local cache');
-      
-      // Fallback to local storage
-      final conversation = await ConversationDbService.getConversation(conversationId);
-      if (conversation != null) {
-        await ConversationDbService.setActiveConversation(userId, conversationId);
-      }
-      return conversation;
+      print('Failed to load conversation from backend: $e');
+      rethrow;
     }
   }
 
@@ -156,65 +132,60 @@ class ConversationService {
     final userId = currentUserId;
     if (userId == null) throw Exception('User not authenticated');
 
-    // For now, just set locally since we need to add backend API
-    await ConversationDbService.setActiveConversation(userId, conversationId);
+    try {
+      await ApiService.activateConversation(
+        conversationId: conversationId,
+        userId: userId,
+      );
+    } catch (e) {
+      print('Failed to switch to conversation: $e');
+      rethrow;
+    }
   }
 
   // Update conversation title
   static Future<void> updateConversationTitle(String conversationId, String newTitle) async {
     try {
-      // Update on backend first
       await ApiService.updateConversationTitle(
         conversationId: conversationId,
         newTitle: newTitle,
       );
-      print('Conversation title updated on backend: $conversationId');
+      print('Conversation title updated: $conversationId');
     } catch (e) {
-      print('Failed to update title on backend: $e');
-    }
-
-    // Update locally (cache)
-    try {
-      final conversation = await ConversationDbService.getConversation(conversationId);
-      if (conversation != null) {
-        final updatedConversation = conversation.updateTitle(newTitle);
-        await ConversationDbService.updateConversation(updatedConversation);
-      }
-    } catch (e) {
-      print('Warning: Failed to update title locally: $e');
+      print('Failed to update conversation title: $e');
+      rethrow;
     }
   }
 
   // Delete conversation
   static Future<void> deleteConversation(String conversationId) async {
     try {
-      // Delete from backend first
       await ApiService.deleteConversation(conversationId);
-      print('Conversation deleted from backend: $conversationId');
+      print('Conversation deleted: $conversationId');
     } catch (e) {
-      print('Failed to delete conversation from backend: $e');
-    }
-
-    // Delete from local cache
-    try {
-      await ConversationDbService.deleteConversation(conversationId);
-    } catch (e) {
-      print('Warning: Failed to delete conversation locally: $e');
+      print('Failed to delete conversation: $e');
+      rethrow;
     }
   }
 
   // MESSAGE OPERATIONS
 
   // Add a user message to the active conversation
-  static Future<ChatMessage> addUserMessage(String content) async {
+  static Future<(ChatMessage, Conversation)> addUserMessage(String content, {Conversation? currentConversation}) async {
     final userId = currentUserId;
     if (userId == null) throw Exception('User not authenticated');
 
-    // Get or create active conversation
-    var activeConversation = await getActiveConversation();
+    // Use provided current conversation or get active conversation from backend
+    var activeConversation = currentConversation;
     if (activeConversation == null) {
-      activeConversation = await createNewConversation(firstMessage: content);
+      activeConversation = await getActiveConversation();
+      if (activeConversation == null) {
+        print('addUserMessage: Creating new conversation for first message');
+        activeConversation = await createNewConversation(firstMessage: content);
+      }
     }
+
+    print('addUserMessage: Using conversation ${activeConversation.id} with ${activeConversation.messages.length} existing messages');
 
     // Create user message
     final userMessage = ChatMessage.createUser(
@@ -223,27 +194,245 @@ class ConversationService {
     );
 
     try {
-      // Save to backend first
-      await _saveMessageToBackend(userMessage);
+      // Add message to conversation
+      final updatedConversation = activeConversation.addMessage(userMessage);
+      
+      // Check if we should update the conversation title based on accumulated context
+      final shouldUpdateTitle = _shouldUpdateConversationTitle(updatedConversation);
+      var finalConversation = updatedConversation;
+      
+      if (shouldUpdateTitle) {
+        final newTitle = _generateContextualTitle(updatedConversation);
+        if (newTitle != updatedConversation.title) {
+          finalConversation = updatedConversation.updateTitle(newTitle);
+          print('Updated conversation title from "${updatedConversation.title}" to "$newTitle"');
+        }
+      }
+      
+      // Save to backend with enhanced logging for first message scenarios
+      if (activeConversation.messages.isEmpty) {
+        print('addUserMessage: This is the FIRST message in the conversation');
+      }
+      
+      await ApiService.saveConversation(
+        conversationId: finalConversation.id,
+        userId: userId,
+        title: finalConversation.title,
+        messages: finalConversation.messages.map((msg) => msg.toJson()).toList(),
+      );
+      
       print('User message saved to backend: ${userMessage.id}');
+      print('Conversation now has ${finalConversation.messages.length} messages total');
+      return (userMessage, finalConversation);
     } catch (e) {
       print('Failed to save user message to backend: $e');
+      rethrow;
     }
-
-    // Always cache locally for quick access
+  }
+  
+  // Determine if conversation title should be updated based on context
+  static bool _shouldUpdateConversationTitle(Conversation conversation) {
+    // Update title after 3-4 messages when we have more context
+    final messageCount = conversation.messages.length;
+    
+    // Don't update if title was manually set (doesn't end with ... or contain common auto-generated patterns)
+    if (!conversation.title.contains('...') && 
+        !conversation.title.startsWith('New Conversation') &&
+        conversation.title.length > 10) {
+      return false;
+    }
+    
+    // Update after we have some conversation context (3-4 messages)
+    return messageCount == 3 || messageCount == 4;
+  }
+  
+  // Generate a more contextual title based on the conversation content
+  static String _generateContextualTitle(Conversation conversation) {
+    final messages = conversation.messages;
+    if (messages.isEmpty) return 'New Conversation';
+    
+    // Collect user messages for context
+    final userMessages = messages.where((m) => m.isUser).map((m) => m.content).toList();
+    final aiMessages = messages.where((m) => !m.isUser).map((m) => m.content).toList();
+    
+    if (userMessages.isEmpty) return 'New Conversation';
+    
+    // Try to identify the main topic from user messages
+    final combinedUserText = userMessages.join(' ').toLowerCase();
+    
+    // Topic detection patterns
+    final topicMap = {
+      // Language learning topics
+      'grammar|tense|verb|noun|adjective': 'Grammar Practice',
+      'pronunciation|pronounce|accent|speak': 'Pronunciation Help',
+      'vocabulary|word|meaning|definition': 'Vocabulary Building',
+      'conversation|practice|chat|talk': 'Conversation Practice',
+      'translate|translation': 'Translation Help',
+      
+      // Countries and travel
+      'malaysia|malaysian': 'About Malaysia',
+      'singapore|singaporean': 'About Singapore', 
+      'thailand|thai': 'About Thailand',
+      'indonesia|indonesian': 'About Indonesia',
+      'philippines|filipino': 'About Philippines',
+      'vietnam|vietnamese': 'About Vietnam',
+      'japan|japanese': 'About Japan',
+      'korea|korean': 'About Korea',
+      'china|chinese': 'About China',
+      'travel|trip|vacation|holiday|visit': 'Travel Discussion',
+      'hotel|resort|accommodation': 'Accommodation',
+      'airport|flight|plane': 'Air Travel',
+      
+      // Common activities
+      'food|eat|restaurant|cook|meal': 'Food & Dining',
+      'work|job|career|business|office': 'Work & Career',
+      'study|school|university|education': 'Education',
+      'family|parent|child|mother|father': 'Family',
+      'friend|friendship|social': 'Social Life',
+      'hobby|interest|free time|leisure': 'Hobbies & Interests',
+      'health|hospital|doctor|medicine': 'Health & Medical',
+      'shopping|buy|purchase|store': 'Shopping',
+      'weather|rain|sun|hot|cold': 'Weather',
+      'movie|film|entertainment|music': 'Entertainment',
+      'sports|exercise|fitness|gym': 'Sports & Fitness',
+      
+      // Common conversation starters
+      'how to|how do|how can': 'How-to Discussion',
+      'what is|what are|what do': 'Q&A Session',
+      'tell me|explain|describe': 'Learning Session',
+      'help|assist|support': 'Help Request',
+      'opinion|think|believe|feel': 'Opinion Discussion',
+    };
+    
+    // Check for topic matches
+    for (final pattern in topicMap.keys) {
+      final regex = RegExp(pattern, caseSensitive: false);
+      if (regex.hasMatch(combinedUserText)) {
+        return topicMap[pattern]!;
+      }
+    }
+    
+    // If no pattern matches, extract key themes from the conversation
+    return _extractConversationTheme(userMessages, aiMessages);
+  }
+  
+  static String _extractConversationTheme(List<String> userMessages, List<String> aiMessages) {
+    // Get the most substantial user message for theme extraction
+    final longestUserMessage = userMessages.reduce((a, b) => a.length > b.length ? a : b);
+    
+    // Look for question words to determine conversation type
+    final firstMessage = userMessages.first.toLowerCase();
+    if (firstMessage.startsWith('how ')) return 'How-to Guide';
+    if (firstMessage.startsWith('what ')) return 'Information Request';
+    if (firstMessage.startsWith('why ')) return 'Explanation';
+    if (firstMessage.startsWith('where ')) return 'Location Discussion';
+    if (firstMessage.startsWith('when ')) return 'Time Discussion';
+    
+    // Extract key nouns and concepts
+    final keywords = _extractKeywords(longestUserMessage);
+    if (keywords.isNotEmpty) {
+      final theme = keywords.take(2).join(' & ');
+      return theme.length > 30 ? '${theme.substring(0, 27)}...' : _capitalizeWords(theme);
+    }
+    
+    // Final fallback - use improved version of original method
+    return Conversation.generateTitleFromMessage(userMessages.first);
+  }
+  
+  static List<String> _extractKeywords(String text) {
+    // Simple keyword extraction - remove common words and get meaningful terms
+    final words = text.toLowerCase().split(RegExp(r'\W+'));
+    final stopWords = {
+      'i', 'me', 'my', 'you', 'your', 'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+      'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+      'this', 'that', 'these', 'those', 'there', 'here', 'where', 'when', 'how', 'what', 'why', 'who', 'which',
+      'can', 'cant', 'dont', 'wont', 'isnt', 'arent', 'wasnt', 'werent', 'havent', 'hasnt', 'hadnt', 'didnt', 'doesnt',
+      'very', 'really', 'quite', 'just', 'only', 'also', 'too', 'much', 'many', 'some', 'any', 'all', 'no', 'not'
+    };
+    
+    final keywords = words
+        .where((word) => word.length > 2 && !stopWords.contains(word))
+        .toSet()
+        .toList();
+    
+    return keywords;
+  }
+  
+  static String _capitalizeWords(String text) {
+    return text.split(' ').map((word) => word.isEmpty ? word : word[0].toUpperCase() + word.substring(1).toLowerCase()).join(' ');
+  }
+  
+  // Generate an AI-powered conversation title (optional enhancement)
+  static Future<String?> generateAITitle(Conversation conversation) async {
     try {
-      await ConversationDbService.addMessage(userMessage);
+      // Only use AI for longer conversations to avoid excessive API calls
+      if (conversation.messages.length < 4) return null;
+      
+      // Prepare context for AI title generation
+      final userMessages = conversation.messages.where((m) => m.isUser).take(3).map((m) => m.content).toList();
+      final context = userMessages.join(' | ');
+      
+      if (context.length > 200) {
+        // Truncate context to avoid long API calls
+        final truncatedContext = context.substring(0, 200) + '...';
+        
+        final prompt = 'Generate a short, descriptive title (max 40 characters) for this English learning conversation: "$truncatedContext". Focus on the main topic or learning goal. Return only the title, no explanation.';
+        
+        final aiTitle = await ApiService.sendChatMessage(prompt);
+        
+        // Clean and validate the AI response
+        var cleanTitle = aiTitle.trim();
+        if (cleanTitle.startsWith('"') && cleanTitle.endsWith('"')) {
+          cleanTitle = cleanTitle.substring(1, cleanTitle.length - 1);
+        }
+        if (cleanTitle.startsWith("'") && cleanTitle.endsWith("'")) {
+          cleanTitle = cleanTitle.substring(1, cleanTitle.length - 1);
+        }
+        
+        if (cleanTitle.length <= 50 && cleanTitle.isNotEmpty && !cleanTitle.contains('\n')) {
+          return cleanTitle;
+        }
+      }
     } catch (e) {
-      print('Warning: Failed to cache user message locally: $e');
+      print('Failed to generate AI title: $e');
     }
-
-    return userMessage;
+    
+    return null;
+  }
+  
+  // Update conversation title with AI assistance (optional)
+  static Future<void> updateTitleWithAI(String conversationId) async {
+    try {
+      final conversation = await loadConversation(conversationId);
+      if (conversation == null) return;
+      
+      final aiTitle = await generateAITitle(conversation);
+      if (aiTitle != null) {
+        await updateConversationTitle(conversationId, aiTitle);
+        print('Updated conversation title to AI-generated: "$aiTitle"');
+      }
+    } catch (e) {
+      print('Failed to update title with AI: $e');
+    }
   }
 
   // Add an AI response to the active conversation
-  static Future<ChatMessage> addAIMessage(String content, {Map<String, dynamic>? metadata}) async {
-    final activeConversation = await getActiveConversation();
-    if (activeConversation == null) throw Exception('No active conversation');
+  static Future<ChatMessage> addAIMessage(String content, {Map<String, dynamic>? metadata, Conversation? conversation}) async {
+    final userId = currentUserId;
+    if (userId == null) throw Exception('User not authenticated');
+    
+    // Use provided conversation or get/create active conversation
+    var activeConversation = conversation;
+    if (activeConversation == null) {
+      activeConversation = await getActiveConversation();
+      if (activeConversation == null) {
+        print('addAIMessage: WARNING - No active conversation found, creating new one');
+        activeConversation = await createNewConversation(firstMessage: 'Starting conversation...');
+      }
+    }
+
+    print('addAIMessage: Adding AI response to conversation ${activeConversation.id}');
+    print('addAIMessage: Conversation currently has ${activeConversation.messages.length} messages');
 
     // Create AI message
     final aiMessage = ChatMessage.createAI(
@@ -253,26 +442,31 @@ class ConversationService {
     );
 
     try {
-      // Save to backend first
-      await _saveMessageToBackend(aiMessage);
-      print('AI message saved to backend: ${aiMessage.id}');
+      // Add message to conversation and save to backend
+      final updatedConversation = activeConversation.addMessage(aiMessage);
+      
+      print('addAIMessage: About to save conversation with ${updatedConversation.messages.length} messages');
+      for (int i = 0; i < updatedConversation.messages.length; i++) {
+        final msg = updatedConversation.messages[i];
+        print('addAIMessage: Message $i: ${msg.isUser ? "USER" : "AI"} - ${msg.content.substring(0, msg.content.length > 50 ? 50 : msg.content.length)}');
+      }
+      
+      await ApiService.saveConversation(
+        conversationId: updatedConversation.id,
+        userId: userId,
+        title: updatedConversation.title,
+        messages: updatedConversation.messages.map((msg) => msg.toJson()).toList(),
+      );
+      
+      print('addAIMessage: AI message saved to backend: ${aiMessage.id}');
+      print('addAIMessage: Final conversation has ${updatedConversation.messages.length} messages');
     } catch (e) {
-      print('Failed to save AI message to backend: $e');
-    }
-
-    // Always cache locally for quick access
-    try {
-      await ConversationDbService.addMessage(aiMessage);
-    } catch (e) {
-      print('Warning: Failed to cache AI message locally: $e');
+      print('addAIMessage: Failed to save AI message to backend: $e');
+      print('addAIMessage: Error occurred while saving conversation ${activeConversation.id}');
+      rethrow;
     }
 
     return aiMessage;
-  }
-
-  // Update message metadata (for suggestions)
-  static Future<void> updateMessageMetadata(String messageId, Map<String, dynamic> metadata) async {
-    await ConversationDbService.updateMessageMetadata(messageId, metadata);
   }
 
   // UTILITY OPERATIONS
@@ -282,7 +476,32 @@ class ConversationService {
     final userId = currentUserId;
     if (userId == null) return {};
 
-    return await ConversationDbService.getConversationStats(userId);
+    try {
+      final conversations = await getConversationHistory();
+      
+      int totalMessages = 0;
+      int userMessages = 0;
+      int aiMessages = 0;
+      
+      for (final summary in conversations) {
+        // This is an approximation since we only have summaries
+        // For exact counts, we'd need to load each conversation fully
+        totalMessages += summary.messageCount;
+        // Rough estimation: assume half are user messages, half are AI
+        userMessages += (summary.messageCount / 2).ceil();
+        aiMessages += (summary.messageCount / 2).floor();
+      }
+      
+      return {
+        'total_conversations': conversations.length,
+        'total_messages': totalMessages,
+        'user_messages': userMessages,
+        'ai_messages': aiMessages,
+      };
+    } catch (e) {
+      print('Failed to get conversation stats: $e');
+      return {};
+    }
   }
 
   // Search conversations
@@ -290,7 +509,21 @@ class ConversationService {
     final userId = currentUserId;
     if (userId == null) return [];
 
-    return await ConversationDbService.searchConversations(userId, query);
+    try {
+      final searchResults = await ApiService.searchConversations(userId, query);
+      
+      return searchResults.map((conversationData) {
+        try {
+          return ConversationSummary.fromJson(conversationData);
+        } catch (e) {
+          print('Error parsing search result: $e');
+          return null;
+        }
+      }).where((summary) => summary != null).cast<ConversationSummary>().toList();
+    } catch (e) {
+      print('Failed to search conversations: $e');
+      return [];
+    }
   }
 
   // Clear all conversations for current user
@@ -298,160 +531,18 @@ class ConversationService {
     final userId = currentUserId;
     if (userId == null) return;
 
-    await ConversationDbService.clearUserConversations(userId);
-
-    // Try to clear from backend (non-blocking)
-    _clearBackendConversations().catchError((e) {
-      print('Warning: Failed to clear conversations from backend: $e');
-    });
-  }
-
-  // BACKGROUND SYNC OPERATIONS
-
-  // Save conversation to backend (private method)
-  static Future<void> _saveConversationToBackend(Conversation conversation) async {
     try {
-      final messages = conversation.messages.map((message) => message.toJson()).toList();
-      await ApiService.saveConversation(
-        conversationId: conversation.id,
-        userId: conversation.userId,
-        title: conversation.title,
-        messages: messages,
-      );
-      print('Conversation saved to backend: ${conversation.id}');
-    } catch (e) {
-      print('Failed to save conversation to backend: $e');
-      rethrow;
-    }
-  }
-
-  // Save individual message to backend
-  static Future<void> _saveMessageToBackend(ChatMessage message) async {
-    try {
-      // Get the conversation first
-      final conversation = await ConversationDbService.getConversation(message.conversationId);
-      if (conversation != null) {
-        // Update conversation with new message and save to backend
-        final updatedConversation = conversation.addMessage(message);
-        await _saveConversationToBackend(updatedConversation);
-      }
-    } catch (e) {
-      print('Failed to save message to backend: $e');
-      rethrow;
-    }
-  }
-
-  // Cache conversation locally for quick access
-  static Future<void> _cacheConversationLocally(Conversation conversation) async {
-    try {
-      // Check if conversation exists locally
-      final existingConversation = await ConversationDbService.getConversation(conversation.id);
+      final conversations = await getConversationHistory();
       
-      if (existingConversation == null) {
-        // Create new conversation locally
-        await ConversationDbService.createConversation(conversation);
-        
-        // Add all messages
-        for (final message in conversation.messages) {
-          await ConversationDbService.addMessage(message);
-        }
-      } else {
-        // Update existing conversation
-        await ConversationDbService.updateConversation(conversation);
-      }
-      
-      // Set as active if needed
-      if (conversation.isActive) {
-        await ConversationDbService.setActiveConversation(conversation.userId, conversation.id);
-      }
-    } catch (e) {
-      print('Failed to cache conversation locally: $e');
-      rethrow;
-    }
-  }
-
-  // Sync backend conversations to local cache
-  static Future<void> _syncBackendToLocal(List<dynamic> backendConversations) async {
-    for (final conversationData in backendConversations) {
-      try {
-        final conversation = Conversation.fromJson(conversationData);
-        await _cacheConversationLocally(conversation);
-      } catch (e) {
-        print('Failed to cache conversation from backend: $e');
-      }
-    }
-  }
-
-  // Clear conversations from backend
-  static Future<void> _clearBackendConversations() async {
-    try {
-      final userId = currentUserId;
-      if (userId == null) return;
-
-      final conversations = await ApiService.getConversationHistory(userId);
+      // Delete each conversation
       for (final conversation in conversations) {
-        await ApiService.deleteConversation(conversation['id']);
+        await deleteConversation(conversation.id);
       }
-    } catch (e) {
-      print('Failed to clear backend conversations: $e');
-    }
-  }
-
-  // PERIODIC SYNC (called by app)
-
-  // Full two-way sync with backend
-  static Future<void> syncWithBackend() async {
-    try {
-      final userId = currentUserId;
-      if (userId == null) return;
-
-      print('Starting conversation sync with backend...');
-
-      // Get local conversations
-      final localConversations = await ConversationDbService.getUserConversations(userId);
       
-      // Prepare local conversation data for sync
-      final localConversationData = <Map<String, dynamic>>[];
-      for (final summary in localConversations) {
-        final conversation = await ConversationDbService.getConversation(summary.id);
-        if (conversation != null) {
-          localConversationData.add(conversation.toJson());
-        }
-      }
-
-      // Sync with backend
-      final syncResult = await ApiService.syncConversations(
-        userId: userId,
-        localConversations: localConversationData,
-      );
-
-      print('Sync completed successfully: ${syncResult['synced_count']} conversations');
+      print('All conversations cleared successfully');
     } catch (e) {
-      print('Failed to sync with backend: $e');
-    }
-  }
-
-  // Clean up old conversations (keep only recent ones)
-  static Future<void> cleanupOldConversations() async {
-    try {
-      final userId = currentUserId;
-      if (userId == null) return;
-
-      final conversations = await ConversationDbService.getUserConversations(userId);
-      
-      if (conversations.length > MAX_LOCAL_CONVERSATIONS) {
-        // Sort by last updated and keep only the most recent
-        conversations.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-        
-        final conversationsToDelete = conversations.skip(MAX_LOCAL_CONVERSATIONS);
-        for (final conversation in conversationsToDelete) {
-          await ConversationDbService.deleteConversation(conversation.id);
-        }
-        
-        print('Cleaned up ${conversationsToDelete.length} old conversations');
-      }
-    } catch (e) {
-      print('Failed to cleanup old conversations: $e');
+      print('Failed to clear all conversations: $e');
+      rethrow;
     }
   }
 
@@ -478,5 +569,12 @@ class ConversationService {
     } catch (e) {
       print('Failed to print debug info: $e');
     }
+  }
+
+  // Update message metadata (compatibility method)
+  static Future<void> updateMessageMetadata(String conversationId, String messageId, Map<String, dynamic> metadata) async {
+    // This method is kept for compatibility but doesn't perform actual updates
+    // since all message management is now handled by backend APIs
+    print('ConversationService: updateMessageMetadata called - metadata updates are handled by backend');
   }
 }

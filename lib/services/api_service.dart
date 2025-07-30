@@ -312,16 +312,32 @@ class ApiService {
     required String title,
     required List<Map<String, dynamic>> messages,
   }) async {
+    print('ApiService: Saving conversation $conversationId');
+    print('ApiService: User ID: $userId');
+    print('ApiService: Title: $title');
+    print('ApiService: Messages count: ${messages.length}');
+    for (int i = 0; i < messages.length; i++) {
+      final msg = messages[i];
+      print('ApiService: Message $i: isUser=${msg['is_user']}, content="${msg['content']}"');
+    }
+    
+    final requestBody = {
+      'conversation_id': conversationId,
+      'user_id': userId,
+      'title': title,
+      'messages': messages,
+    };
+    
+    print('ApiService: Request body: ${jsonEncode(requestBody)}');
+    
     final response = await http.post(
       Uri.parse('$baseUrl/conversations'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'conversation_id': conversationId,
-        'user_id': userId,
-        'title': title,
-        'messages': messages,
-      }),
+      body: jsonEncode(requestBody),
     ).timeout(ApiConfig.generalApiTimeout);
+    
+    print('ApiService: Response status: ${response.statusCode}');
+    print('ApiService: Response body: ${response.body}');
     
     if (response.statusCode == 200 || response.statusCode == 201) {
       return jsonDecode(response.body);
@@ -345,12 +361,20 @@ class ApiService {
 
   // Get specific conversation with messages
   static Future<Map<String, dynamic>> getConversation(String conversationId) async {
+    final url = '$baseUrl/conversations/details/$conversationId';
+    print('ApiService: Getting conversation from URL: $url');
+    
     final response = await http.get(
-      Uri.parse('$baseUrl/conversations/details/$conversationId'),
+      Uri.parse(url),
     ).timeout(ApiConfig.generalApiTimeout);
     
+    print('ApiService: Response status: ${response.statusCode}');
+    print('ApiService: Response body: ${response.body}');
+    
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
+      final data = jsonDecode(response.body);
+      print('ApiService: Parsed JSON data: $data');
+      return data;
     } else {
       throw Exception('Failed to load conversation: ${response.body}');
     }
@@ -387,6 +411,37 @@ class ApiService {
     }
   }
 
+  // Activate conversation
+  static Future<Map<String, dynamic>> activateConversation({
+    required String conversationId,
+    required String userId,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/conversations/$conversationId/activate'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'user_id': userId}),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to activate conversation: ${response.body}');
+    }
+  }
+
+  // Search conversations
+  static Future<List<dynamic>> searchConversations(String userId, String query) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/conversations/$userId/search?q=${Uri.encodeComponent(query)}'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to search conversations: ${response.body}');
+    }
+  }
+
   // Sync local conversations with backend
   static Future<Map<String, dynamic>> syncConversations({
     required String userId,
@@ -405,6 +460,131 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Failed to sync conversations: ${response.body}');
+    }
+  }
+
+  // USER PROGRESS AND ACHIEVEMENTS API METHODS
+
+  // Get user progress
+  static Future<Map<String, dynamic>> getUserProgress(String userId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/user/$userId/progress'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load user progress: ${response.body}');
+    }
+  }
+
+  // Save user progress
+  static Future<Map<String, dynamic>> saveUserProgress(String userId, Map<String, dynamic> progressData) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/user/$userId/progress'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(progressData),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to save user progress: ${response.body}');
+    }
+  }
+
+  // Track message submission for progress
+  static Future<Map<String, dynamic>> trackMessageSubmission({
+    required String userId,
+    required String messageContent,
+    required String messageType,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/user/$userId/track-message'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'message_content': messageContent,
+        'message_type': messageType,
+      }),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to track message: ${response.body}');
+    }
+  }
+
+  // Get user achievements
+  static Future<List<dynamic>> getUserAchievements(String userId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/user/$userId/achievements'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['achievements'] ?? [];
+    } else {
+      throw Exception('Failed to load user achievements: ${response.body}');
+    }
+  }
+
+  // Add user achievement
+  static Future<Map<String, dynamic>> addUserAchievement({
+    required String userId,
+    required String achievementId,
+    required String title,
+    required String description,
+    required String iconName,
+    required String achievementType,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/user/$userId/achievements'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'achievement_id': achievementId,
+        'title': title,
+        'description': description,
+        'icon_name': iconName,
+        'achievement_type': achievementType,
+      }),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to add achievement: ${response.body}');
+    }
+  }
+
+  // USER SETTINGS API METHODS
+
+  // Get user settings
+  static Future<Map<String, dynamic>> getUserSettings(String userId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/user/$userId/settings'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['settings'] ?? {};
+    } else {
+      throw Exception('Failed to load user settings: ${response.body}');
+    }
+  }
+
+  // Save user settings
+  static Future<Map<String, dynamic>> saveUserSettings(String userId, Map<String, dynamic> settings) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/user/$userId/settings'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(settings),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to save user settings: ${response.body}');
     }
   }
 }

@@ -51,6 +51,66 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
     _loadVoiceSettings();
     _loadActiveConversation();
   }
+  
+    // New: Load a specific conversation by ID
+    Future<void> _loadConversationById(String conversationId) async {
+        setState(() => _isLoadingConversation = true);
+        try {
+            print('Loading conversation ID: $conversationId');
+            final conversation = await ConversationService.loadConversation(conversationId);
+            if (conversation != null) {
+                print('Conversation loaded: ${conversation.title}');
+                print('Raw messages count: ${conversation.messages.length}');
+                for (int i = 0; i < conversation.messages.length; i++) {
+                    final msg = conversation.messages[i];
+                    print('Message $i: ${msg.isUser ? "USER" : "AI"} - ${msg.content.length > 50 ? msg.content.substring(0, 50) + "..." : msg.content}');
+                }
+                
+                // Sort messages by timestamp ascending
+                final sortedMessages = List.of(conversation.messages)
+                  ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+                
+                print('After sorting: ${sortedMessages.length} messages');
+                for (int i = 0; i < sortedMessages.length; i++) {
+                    final msg = sortedMessages[i];
+                    print('Sorted Message $i: ${msg.isUser ? "USER" : "AI"} - ${msg.content.length > 50 ? msg.content.substring(0, 50) + "..." : msg.content}');
+                }
+                
+                setState(() {
+                    _currentConversation = conversation;
+                    _messages.clear();
+                    for (final message in sortedMessages) {
+                        _messages.add(_ChatMessage(
+                            text: message.content,
+                            isUser: message.isUser,
+                            suggestions: message.metadata != null
+                                ? _MessageSuggestions.fromJson(message.metadata!)
+                                : null,
+                        ));
+                    }
+                });
+                print('UI messages count: ${_messages.length}');
+                print('Current conversation set to: ${_currentConversation?.id}');
+                
+                // For reverse: true ListView, scroll to position 0 to show latest messages at bottom
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (_scrollController.hasClients && _messages.isNotEmpty) {
+                    _scrollController.animateTo(
+                      0.0, // Scroll to bottom (most recent message)
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.easeOut,
+                    );
+                  }
+                });
+            } else {
+                print('Conversation is null');
+            }
+        } catch (e) {
+            print('Error loading conversation by ID: $e');
+        } finally {
+            setState(() => _isLoadingConversation = false);
+        }
+    }
 
   Future<void> _loadActiveConversation() async {
     setState(() => _isLoadingConversation = true);
@@ -127,26 +187,86 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
         await ProgressService.trackMessageSubmission(currentProgress, text, 'chat');
       }
       
-      // Add user message to conversation service
-      await ConversationService.addUserMessage(text);
+      // Add user message to conversation service, using current conversation if available
+      print('_sendMessage: Current conversation before addUserMessage: ${_currentConversation?.id}');
+      final (userMessage, conversation) = await ConversationService.addUserMessage(text, currentConversation: _currentConversation);
       
       // Update current conversation reference
-      _currentConversation = await ConversationService.getActiveConversation();
+      _currentConversation = conversation;
+      print('_sendMessage: Current conversation after addUserMessage: ${_currentConversation?.id}');
       
       // Add to UI
-      final userMessage = _ChatMessage(text: text, isUser: true);
+      final userUIMessage = _ChatMessage(text: text, isUser: true);
       setState(() {
-        _messages.add(userMessage);
+        _messages.add(userUIMessage);
         _isTyping = true;
       });
       _controller.clear();
       _scrollToBottom();
       
       // Get AI response
+      print('_sendMessage: Requesting AI response for: "${text.substring(0, text.length > 50 ? 50 : text.length)}..."');
       final aiResponse = await _getAIResponse(text);
+      print('_sendMessage: Received AI response: "${aiResponse.substring(0, aiResponse.length > 100 ? 100 : aiResponse.length)}..."');
       
-      // Add AI response to conversation service
-      final aiChatMessage = await ConversationService.addAIMessage(aiResponse);
+      // Add AI response to conversation service with the conversation reference
+      ChatMessage? aiChatMessage;
+      try {
+        print('_sendMessage: About to save AI message to conversation: ${conversation.id}');
+        print('_sendMessage: Current conversation has ${conversation.messages.length} messages');
+        aiChatMessage = await ConversationService.addAIMessage(aiResponse, conversation: conversation);
+        print('_sendMessage: AI message saved successfully: ${aiChatMessage.id}');
+        
+        // Update our current conversation reference to include the new AI message
+        final updatedConversationWithAI = conversation.addMessage(aiChatMessage);
+        _currentConversation = updatedConversationWithAI;
+        print('_sendMessage: Updated current conversation, now has ${_currentConversation!.messages.length} messages');
+      } catch (e) {
+        print('_sendMessage: Error saving AI message: $e');
+        print('_sendMessage: Conversation details - ID: ${conversation.id}, messages: ${conversation.messages.length}');
+        
+        // Retry once after a short delay for transient issues
+        try {
+          print('_sendMessage: Retrying AI message save after error...');
+          await Future.delayed(Duration(milliseconds: 500));
+          aiChatMessage = await ConversationService.addAIMessage(aiResponse, conversation: conversation);
+          print('_sendMessage: AI message saved successfully on retry: ${aiChatMessage.id}');
+          
+          final updatedConversationWithAI = conversation.addMessage(aiChatMessage);
+          _currentConversation = updatedConversationWithAI;
+        } catch (retryError) {
+          print('_sendMessage: Retry also failed: $retryError');
+          // Show warning but continue
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Warning: AI response may not be saved to history'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 5),
+                action: SnackBarAction(
+                  label: 'Details',
+                  textColor: Colors.white,
+                  onPressed: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: Text('Save Error'),
+                        content: Text('Failed to save AI response: $retryError'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: Text('OK'),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            );
+          }
+        }
+      }
       
       // Show AI response immediately with optimistic loading placeholder
       final aiMessageIndex = _messages.length;
@@ -206,10 +326,13 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
           });
           
           // Update the message metadata in conversation service
-          await ConversationService.updateMessageMetadata(
-            aiChatMessage.id,
-            {'suggestions': suggestionsData},
-          );
+          if (aiChatMessage != null) {
+            await ConversationService.updateMessageMetadata(
+              _currentConversation?.id ?? '',
+              aiChatMessage.id,
+              {'suggestions': suggestionsData},
+            );
+          }
         } catch (e) {
           print('Chatbot: Error getting suggestions: $e');
           // Show error-specific fallback with correct data types
@@ -285,7 +408,16 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
           _isBackendConnected = false;
         });
       }
-      return "I'm sorry, I'm having trouble connecting to the server right now. Please try again in a moment.";
+      
+      // Check if it's a rate limit error and provide a specific message
+      final errorMessage = e.toString();
+      if (errorMessage.contains('429') || errorMessage.contains('Rate limit') || errorMessage.contains('rate limit')) {
+        return "I apologize, but I'm currently experiencing high demand. Please wait a moment and try again. The AI service has rate limits that help ensure fair usage for everyone.";
+      } else if (errorMessage.contains('timeout') || errorMessage.contains('Timeout')) {
+        return "The AI service is taking longer than expected to respond. Please try sending your message again.";
+      } else {
+        return "I'm sorry, I'm having trouble connecting to the server right now. Please try again in a moment.";
+      }
     }
   }
 
@@ -542,8 +674,8 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
         // New conversation was created, reload current conversation
         await _loadActiveConversation();
       } else if (result is String) {
-        // Specific conversation was selected, load it
-        await _loadActiveConversation();
+        // Specific conversation was selected, load it by ID
+        await _loadConversationById(result);
       }
     }
   }
