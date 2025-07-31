@@ -1228,12 +1228,16 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        gradient: LinearGradient(
+          colors: [Colors.deepPurple, Colors.purple.shade400],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.grey.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 2),
+            color: Colors.deepPurple.withOpacity(0.3),
+            blurRadius: 15,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -1244,9 +1248,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             width: 50,
             height: 50,
             decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Colors.deepPurple, Colors.purple.shade400],
-              ),
+              color: Colors.white.withOpacity(0.2),
+              border: Border.all(color: Colors.white.withOpacity(0.3), width: 2),
               borderRadius: BorderRadius.circular(25),
             ),
             child: const Icon(
@@ -1266,7 +1269,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   'Welcome back!',
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.grey.shade600,
+                    color: Colors.white.withOpacity(0.9),
                   ),
                 ),
                 Text(
@@ -1274,7 +1277,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.deepPurple,
+                    color: Colors.white,
                   ),
                 ),
               ],
@@ -1286,9 +1289,9 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
             },
-            icon: Icon(
+            icon: const Icon(
               Icons.logout,
-              color: Colors.grey.shade600,
+              color: Colors.white,
             ),
           ),
         ],
