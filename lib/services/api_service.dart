@@ -43,6 +43,50 @@ class ApiService {
     return data['reply'] ?? 'Error';
   }
 
+  // Combined chat and suggestions to reduce API calls
+  static Future<Map<String, dynamic>> sendChatMessageWithSuggestions(
+    String message, {
+    String? conversationId,
+    bool includeSuggestions = true,
+  }) async {
+    print('=== API SERVICE COMBINED DEBUG ===');
+    print('API Service: sendChatMessageWithSuggestions called with message: $message');
+    print('API Service: includeSuggestions: $includeSuggestions');
+    
+    try {
+      final uri = Uri.parse('$baseUrl/chat-with-suggestions');
+      print('API Service: Making combined request to: $uri');
+      
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'message': message,
+          'conversation_id': conversationId,
+          'include_suggestions': includeSuggestions,
+        }),
+      ).timeout(ApiConfig.chatTimeout); // Use chat timeout for combined call
+      
+      print('API Service: Combined response status: ${response.statusCode}');
+      print('API Service: Combined response body: ${response.body}');
+      
+      if (response.statusCode == 200) {
+        final parsed = jsonDecode(response.body);
+        print('API Service: Successfully parsed combined response');
+        print('=== END API SERVICE COMBINED DEBUG ===');
+        return parsed;
+      } else {
+        print('API Service: Combined HTTP error ${response.statusCode}: ${response.body}');
+        throw Exception('HTTP ${response.statusCode}: ${response.body}');
+      }
+    } catch (e) {
+      print('API Service: Combined request failed with error: $e');
+      print('API Service: Error type: ${e.runtimeType}');
+      print('=== END API SERVICE COMBINED DEBUG ===');
+      rethrow;
+    }
+  }
+
   // Grammar correction
   static Future<String> checkGrammar(String sentence) async {
     final response = await http.post(
@@ -241,7 +285,13 @@ class ApiService {
   static Future<Map<String, dynamic>> getAvailableModels() async {
     final response = await http.get(Uri.parse('$baseUrl/settings/models')).timeout(ApiConfig.generalApiTimeout);
     if (response.statusCode == 200) {
-      return jsonDecode(response.body);
+      final data = jsonDecode(response.body);
+      // Backend returns {available: [...], message: "..."}
+      // Transform to expected format: {models: [...]}
+      return {
+        'models': data['available'] ?? [],
+        'message': data['message'] ?? 'Available AI models for selection'
+      };
     } else {
       throw Exception('Failed to load available models: ${response.body}');
     }

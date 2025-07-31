@@ -677,7 +677,220 @@ app.post('/chat', async (req, res) => {
   }
 });
 
-// Grammar & Vocabulary suggestions endpoint
+// Combined chat and suggestions endpoint to reduce API calls
+app.post('/chat-with-suggestions', async (req, res) => {
+  console.log('=== Combined Chat & Suggestions API Called ===');
+  console.log('Request method:', req.method);
+  console.log('Request headers:', req.headers);
+  console.log('Request body:', req.body);
+  console.log('Request origin:', req.headers.origin);
+  
+  const { message, include_suggestions = true } = req.body;
+  
+  // Check if API key is configured
+  if (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === 'your_api_key_here') {
+    // Provide a fallback response for demo purposes
+    const demoResponses = [
+      "That's a great question! I'm here to help you learn English. What would you like to practice today?",
+      "Excellent! Let's work on improving your English skills. Would you like to focus on grammar, vocabulary, or conversation?",
+      "I understand what you're saying. English can be challenging, but with practice, you'll get better! What specific area would you like help with?",
+      "Good job on expressing yourself! Remember, making mistakes is part of learning. Keep practicing!",
+      "That's an interesting point! In English, we would typically say... Would you like me to explain the grammar rule behind this?"
+    ];
+    const randomResponse = demoResponses[Math.floor(Math.random() * demoResponses.length)];
+    
+    const result = { reply: `[Demo Mode] ${randomResponse}` };
+    
+    if (include_suggestions) {
+      result.suggestions = {
+        grammar_fix: "Demo mode - no grammar analysis available",
+        better_versions: [
+          "Demo response alternative 1",
+          "Demo response alternative 2",
+          "Demo response alternative 3"
+        ],
+        vocabulary: [
+          {
+            word: "practice",
+            meaning: "to repeat an activity to improve skill",
+            example: "You should practice speaking English every day"
+          }
+        ]
+      };
+    }
+    
+    return res.json(result);
+  }
+  
+  try {
+    // Get the currently selected AI model
+    const selectedModel = await getSelectedModel();
+    console.log('Combined API using model:', selectedModel);
+    
+    // Enhanced system prompt that combines chat and suggestions
+    const systemPrompt = include_suggestions ? 
+      `You are an English language learning tutor. For each student message, provide BOTH a conversational response AND detailed learning analysis in JSON format.
+
+Your response must be valid JSON with exactly this structure:
+
+{
+  "reply": "Your conversational response to the student (50-80 words, engaging and encouraging)",
+  "suggestions": {
+    "grammar_fix": "Describe grammar errors and corrections, or 'No grammar errors found'",
+    "better_versions": ["improved version 1", "improved version 2", "improved version 3"],
+    "vocabulary": [
+      {"word": "word1", "meaning": "definition", "example": "example sentence"},
+      {"word": "word2", "meaning": "definition", "example": "example sentence"}
+    ]
+  }
+}
+
+Guidelines for reply:
+1. If their English has errors, start with "A better way to say this would be: [corrected version]"
+2. Then engage with their topic naturally
+3. End with a follow-up question to encourage practice
+4. Keep responses 50-80 words
+5. Focus only on English learning topics
+
+Guidelines for suggestions:
+- Analyze their English for grammar, vocabulary, and style
+- Provide constructive feedback and improvements
+- Include relevant vocabulary with definitions and examples
+
+DO NOT include any text before or after the JSON. Return ONLY valid JSON.` :
+      `You are an English language learning tutor, NOT a general AI assistant. Your ONLY job is to help users practice and improve their English. Always stay focused on English learning topics.
+
+When responding:
+1. If their English has errors, start with "A better way to say this would be: [corrected version]"
+2. Then engage with their topic in a natural, conversational way
+3. End with a follow-up question to encourage more English practice
+4. Keep responses 50-80 words
+5. Never discuss AI, language models, or technical topics - focus only on English learning
+
+Be encouraging, friendly, and always redirect conversations toward English practice.`;
+    
+    // Make a single API call to OpenRouter
+    const response = await axios.post(
+      OPENROUTER_BASE_URL,
+      {
+        model: selectedModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: include_suggestions ? `Analyze and respond to: "${message}"` : message }
+        ],
+        max_tokens: include_suggestions ? 800 : 300,
+        temperature: include_suggestions ? 0.5 : 0.7
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        timeout: 30000
+      }
+    );
+    
+    console.log('Combined API Success - AI Response:', response.data.choices[0].message.content);
+    
+    const aiResponse = response.data.choices[0].message.content;
+    
+    if (include_suggestions) {
+      // Parse JSON response for combined mode
+      try {
+        let cleanResponse = aiResponse.trim();
+        if (cleanResponse.startsWith('```json')) {
+          cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        } else if (cleanResponse.startsWith('```')) {
+          cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
+        }
+        
+        const parsedResponse = JSON.parse(cleanResponse);
+        
+        // Validate the response structure
+        if (parsedResponse.reply && parsedResponse.suggestions) {
+          res.json(parsedResponse);
+        } else {
+          // Fallback if structure is incorrect
+          res.json({
+            reply: parsedResponse.reply || aiResponse,
+            suggestions: parsedResponse.suggestions || {
+              grammar_fix: "Unable to analyze grammar at this time",
+              better_versions: ["Please try again for better suggestions"],
+              vocabulary: []
+            }
+          });
+        }
+      } catch (parseError) {
+        console.error('Failed to parse combined response:', parseError);
+        // Fallback to basic response
+        res.json({
+          reply: aiResponse,
+          suggestions: {
+            grammar_fix: "Analysis unavailable in this response format",
+            better_versions: ["Please try sending your message again"],
+            vocabulary: []
+          }
+        });
+      }
+    } else {
+      // Simple chat mode
+      res.json({ reply: aiResponse });
+    }
+    
+  } catch (err) {
+    console.error('Combined API Error Details:');
+    console.error('- Error message:', err.message);
+    console.error('- Response status:', err.response?.status);
+    console.error('- Response data:', err.response?.data);
+    
+    // Handle specific API errors with intelligent fallbacks
+    if (err.response?.status === 429) {
+      const result = { 
+        reply: "I'm experiencing high demand right now, but I'm still here to chat! Your message is interesting and I'd love to continue our conversation. What would you like to explore further?" 
+      };
+      
+      if (include_suggestions) {
+        result.suggestions = {
+          grammar_fix: "Rate limit reached - unable to check grammar right now",
+          better_versions: [
+            "The AI service is temporarily busy. Please try again in a moment.",
+            "Your message was received successfully!",
+            "Chat responses are still working normally."
+          ],
+          vocabulary: [
+            {
+              word: "temporarily",
+              meaning: "for a limited time; not permanently", 
+              example: "The service is temporarily unavailable"
+            }
+          ]
+        };
+      }
+      
+      return res.json(result);
+    } else {
+      const result = { 
+        reply: "I'm having some technical difficulties right now, but I'm still here to help you practice English! Let's keep chatting - what would you like to talk about?" 
+      };
+      
+      if (include_suggestions) {
+        result.suggestions = {
+          grammar_fix: "Could not analyze grammar at this time",
+          better_versions: [
+            "The suggestions feature is having technical difficulties",
+            "Your conversation can continue normally",
+            "Try disabling suggestions in the menu to improve performance"
+          ],
+          vocabulary: []
+        };
+      }
+      
+      return res.json(result);
+    }
+  }
+});
+
+// Grammar & Vocabulary suggestions endpoint (kept for backward compatibility)
 app.post('/suggestions', async (req, res) => {
   console.log('=== Suggestions API Called ===');
   console.log('Request method:', req.method);
@@ -1205,6 +1418,310 @@ app.post('/progress', (req, res) => {
   db.run('INSERT INTO progress (metric, value) VALUES (?, ?)', [metric, value], function(err) {
     if (err) return res.status(500).json({ error: err.message });
     res.json({ id: this.lastID });
+  });
+});
+
+// CONVERSATION HISTORY API ENDPOINTS
+
+// Create conversation history tables
+db.serialize(() => {
+  db.run(`CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_active INTEGER DEFAULT 0
+  )`);
+  
+  db.run(`CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    is_user INTEGER NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    metadata TEXT,
+    FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
+  )`);
+  
+  // Indexes for performance
+  db.run('CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)');
+  db.run('CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp DESC)');
+});
+
+// Get user's conversation history
+app.get('/conversations/:userId', (req, res) => {
+  const { userId } = req.params;
+  
+  const query = `
+    SELECT 
+      c.*,
+      COUNT(m.id) as message_count,
+      (
+        SELECT content 
+        FROM messages m2 
+        WHERE m2.conversation_id = c.id 
+        ORDER BY m2.timestamp DESC 
+        LIMIT 1
+      ) as last_message_content,
+      (
+        SELECT is_user 
+        FROM messages m2 
+        WHERE m2.conversation_id = c.id 
+        ORDER BY m2.timestamp DESC 
+        LIMIT 1
+      ) as last_message_is_user
+    FROM conversations c
+    LEFT JOIN messages m ON c.id = m.conversation_id
+    WHERE c.user_id = ?
+    GROUP BY c.id
+    ORDER BY c.updated_at DESC
+  `;
+  
+  db.all(query, [userId], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    const conversations = rows.map(row => {
+      const lastContent = row.last_message_content;
+      const lastIsUser = row.last_message_is_user;
+      
+      let lastMessagePreview = 'No messages yet';
+      if (lastContent) {
+        const preview = lastContent.length > 50 
+            ? `${lastContent.substring(0, 50)}...`
+            : lastContent;
+        lastMessagePreview = lastIsUser === 1 ? `You: ${preview}` : preview;
+      }
+      
+      return {
+        id: row.id,
+        title: row.title,
+        lastMessagePreview,
+        updatedAt: row.updated_at,
+        messageCount: row.message_count,
+        isActive: row.is_active === 1,
+      };
+    });
+    
+    res.json(conversations);
+  });
+});
+
+// Get specific conversation with messages
+app.get('/conversations/details/:conversationId', (req, res) => {
+  const { conversationId } = req.params;
+  
+  // Get conversation
+  db.get('SELECT * FROM conversations WHERE id = ?', [conversationId], (err, conversation) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+    
+    // Get messages
+    db.all(
+      'SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC', 
+      [conversationId], 
+      (err, messages) => {
+        if (err) return res.status(500).json({ error: err.message });
+        
+        const result = {
+          id: conversation.id,
+          userId: conversation.user_id,
+          title: conversation.title,
+          createdAt: conversation.created_at,
+          updatedAt: conversation.updated_at,
+          isActive: conversation.is_active === 1,
+          messages: messages.map(msg => ({
+            id: msg.id,
+            conversationId: msg.conversation_id,
+            content: msg.content,
+            isUser: msg.is_user === 1,
+            timestamp: msg.timestamp,
+            metadata: msg.metadata ? JSON.parse(msg.metadata) : null,
+          }))
+        };
+        
+        res.json(result);
+      }
+    );
+  });
+});
+
+// Save/Create conversation
+app.post('/conversations', (req, res) => {
+  const { conversation_id, user_id, title, messages = [] } = req.body;
+  
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    
+    // Insert or update conversation
+    db.run(
+      `INSERT OR REPLACE INTO conversations (id, user_id, title, updated_at) 
+       VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+      [conversation_id, user_id, title],
+      function(err) {
+        if (err) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ error: err.message });
+        }
+        
+        // Clear existing messages for this conversation
+        db.run('DELETE FROM messages WHERE conversation_id = ?', [conversation_id], (err) => {
+          if (err) {
+            db.run('ROLLBACK');
+            return res.status(500).json({ error: err.message });
+          }
+          
+          // Insert new messages
+          const stmt = db.prepare(`
+            INSERT INTO messages (id, conversation_id, content, is_user, timestamp, metadata) 
+            VALUES (?, ?, ?, ?, ?, ?)
+          `);
+          
+          messages.forEach(msg => {
+            stmt.run(
+              msg.id,
+              conversation_id,
+              msg.content,
+              msg.is_user ? 1 : 0,
+              msg.timestamp,
+              msg.metadata ? JSON.stringify(msg.metadata) : null
+            );
+          });
+          
+          stmt.finalize();
+          
+          db.run('COMMIT');
+          res.json({ success: true, conversation_id });
+        });
+      }
+    );
+  });
+});
+
+// Update conversation title
+app.put('/conversations/:conversationId/title', (req, res) => {
+  const { conversationId } = req.params;
+  const { title } = req.body;
+  
+  db.run(
+    'UPDATE conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+    [title, conversationId],
+    function(err) {
+      if (err) return res.status(500).json({ error: err.message });
+      
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Conversation not found' });
+      }
+      
+      res.json({ success: true, message: 'Title updated successfully' });
+    }
+  );
+});
+
+// Delete conversation
+app.delete('/conversations/:conversationId', (req, res) => {
+  const { conversationId } = req.params;
+  
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    
+    // Delete messages first
+    db.run('DELETE FROM messages WHERE conversation_id = ?', [conversationId], (err) => {
+      if (err) {
+        db.run('ROLLBACK');
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Delete conversation
+      db.run('DELETE FROM conversations WHERE id = ?', [conversationId], function(err) {
+        if (err) {
+          db.run('ROLLBACK');
+          return res.status(500).json({ error: err.message });
+        }
+        
+        db.run('COMMIT');
+        res.json({ success: true, message: 'Conversation deleted successfully' });
+      });
+    });
+  });
+});
+
+// Set active conversation
+app.post('/conversations/:conversationId/activate', (req, res) => {
+  const { conversationId } = req.params;
+  const { user_id } = req.body;
+  
+  db.serialize(() => {
+    db.run('BEGIN TRANSACTION');
+    
+    // Deactivate all conversations for user
+    db.run('UPDATE conversations SET is_active = 0 WHERE user_id = ?', [user_id], (err) => {
+      if (err) {
+        db.run('ROLLBACK');
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Activate selected conversation
+      db.run(
+        'UPDATE conversations SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [conversationId],
+        function(err) {
+          if (err) {
+            db.run('ROLLBACK');
+            return res.status(500).json({ error: err.message });
+          }
+          
+          db.run('COMMIT');
+          res.json({ success: true, message: 'Conversation activated' });
+        }
+      );
+    });
+  });
+});
+
+// Search conversations
+app.get('/conversations/:userId/search', (req, res) => {
+  const { userId } = req.params;
+  const { q: query } = req.query;
+  
+  if (!query) {
+    return res.status(400).json({ error: 'Search query is required' });
+  }
+  
+  const searchQuery = `
+    SELECT DISTINCT
+      c.*,
+      COUNT(m.id) as message_count
+    FROM conversations c
+    LEFT JOIN messages m ON c.id = m.conversation_id
+    WHERE c.user_id = ? AND (
+      c.title LIKE ? OR 
+      EXISTS (
+        SELECT 1 FROM messages m2 
+        WHERE m2.conversation_id = c.id AND m2.content LIKE ?
+      )
+    )
+    GROUP BY c.id
+    ORDER BY c.updated_at DESC
+  `;
+  
+  const searchTerm = `%${query}%`;
+  
+  db.all(searchQuery, [userId, searchTerm, searchTerm], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    const conversations = rows.map(row => ({
+      id: row.id,
+      title: row.title,
+      lastMessagePreview: `Found: ${query}`,
+      updatedAt: row.updated_at,
+      messageCount: row.message_count,
+      isActive: row.is_active === 1,
+    }));
+    
+    res.json(conversations);
   });
 });
 
