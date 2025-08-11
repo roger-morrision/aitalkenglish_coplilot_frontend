@@ -607,7 +607,7 @@ app.post('/chat', async (req, res) => {
         messages: [
           { 
             role: 'system', 
-            content: 'You are an English language learning tutor, NOT a general AI assistant. Your ONLY job is to help users practice and improve their English. Always stay focused on English learning topics. If users ask about other topics (like technology, science, etc.), gently redirect them back to English learning while still being helpful. \n\nWhen responding:\n1. If their English has errors, start with "A better way to say this would be: [corrected version]"\n2. Then engage with their topic in a natural, conversational way\n3. End with a follow-up question to encourage more English practice\n4. Keep responses 50-80 words\n5. Never discuss AI, language models, or technical topics - focus only on English learning\n\nBe encouraging, friendly, and always redirect conversations toward English practice.' 
+            content: 'You are an English language learning tutor, NOT a general AI assistant. Your ONLY job is to help users practice and improve their English. Always stay focused on English learning topics. If users ask about other topics (like technology, science, etc.), gently redirect them back to English learning while still being helpful. \n\nWhen responding:\n1. ALWAYS analyze the student\'s message for grammar/spelling errors first\n2. If their English has ANY errors, you MUST start your reply with "A better way to say this would be: [provide the fully corrected version]"\n3. Then engage with their topic in a natural, conversational way\n4. End with a follow-up question to encourage more English practice\n5. Keep responses 50-80 words\n6. Never discuss AI, language models, or technical topics - focus only on English learning\n\nIMPORTANT: The corrected version should fix ALL grammar and spelling errors, not just one mistake.\n\nBe encouraging, friendly, and always redirect conversations toward English practice.' 
           },
           { role: 'user', content: message }
         ],
@@ -736,8 +736,23 @@ Your response must be valid JSON with exactly this structure:
 {
   "reply": "Your conversational response to the student (50-80 words, engaging and encouraging)",
   "suggestions": {
-    "grammar_fix": "Describe grammar errors and corrections, or 'No grammar errors found'",
-    "better_versions": ["improved version 1", "improved version 2", "improved version 3"],
+    "grammar_errors": [
+      {
+        "error": "incorrect text from student",
+        "correction": "correct version",
+        "explanation": "brief explanation of the rule",
+        "type": "grammar_type (e.g., tense, article, preposition, etc.)"
+      }
+    ],
+    "spelling_errors": [
+      {
+        "error": "misspelled word",
+        "correction": "correct spelling",
+        "context": "the phrase where it appears"
+      }
+    ],
+    "grammar_summary": "Overall summary of grammar quality or 'No grammar errors found'",
+    "better_versions": ["alternative way to express the same meaning (not just grammar correction)", "more sophisticated way to say the same thing", "more natural or idiomatic expression"],
     "vocabulary": [
       {"word": "word1", "meaning": "definition", "example": "example sentence"},
       {"word": "word2", "meaning": "definition", "example": "example sentence"}
@@ -746,26 +761,34 @@ Your response must be valid JSON with exactly this structure:
 }
 
 Guidelines for reply:
-1. If their English has errors, start with "A better way to say this would be: [corrected version]"
-2. Then engage with their topic naturally
-3. End with a follow-up question to encourage practice
-4. Keep responses 50-80 words
-5. Focus only on English learning topics
+1. ALWAYS analyze the student's message for grammar/spelling errors first
+2. If their English has ANY errors, you MUST start your reply with "A better way to say this would be: [provide the fully corrected version]"
+3. Then engage with their topic naturally and encouragingly
+4. End with a follow-up question to encourage practice
+5. Keep responses 50-80 words
+6. Focus only on English learning topics
+
+IMPORTANT: The corrected version should fix ALL grammar and spelling errors, not just one mistake.
 
 Guidelines for suggestions:
-- Analyze their English for grammar, vocabulary, and style
-- Provide constructive feedback and improvements
+- Analyze EVERY grammar mistake, typo, and spelling error thoroughly
+- Be specific with corrections and explanations
+- "better_versions": Provide 3 ALTERNATIVE ways to express the SAME meaning using different vocabulary, sentence structure, or style. These should NOT be simple grammar corrections but different ways to communicate the same idea.
 - Include relevant vocabulary with definitions and examples
+- If no errors found, use empty arrays for grammar_errors and spelling_errors
 
 DO NOT include any text before or after the JSON. Return ONLY valid JSON.` :
       `You are an English language learning tutor, NOT a general AI assistant. Your ONLY job is to help users practice and improve their English. Always stay focused on English learning topics.
 
 When responding:
-1. If their English has errors, start with "A better way to say this would be: [corrected version]"
-2. Then engage with their topic in a natural, conversational way
-3. End with a follow-up question to encourage more English practice
-4. Keep responses 50-80 words
-5. Never discuss AI, language models, or technical topics - focus only on English learning
+1. ALWAYS analyze the student's message for grammar/spelling errors first
+2. If their English has ANY errors, you MUST start your reply with "A better way to say this would be: [provide the fully corrected version]"
+3. Then engage with their topic in a natural, conversational way
+4. End with a follow-up question to encourage more English practice
+5. Keep responses 50-80 words
+6. Never discuss AI, language models, or technical topics - focus only on English learning
+
+IMPORTANT: The corrected version should fix ALL grammar and spelling errors, not just one mistake.
 
 Be encouraging, friendly, and always redirect conversations toward English practice.`;
     
@@ -806,9 +829,42 @@ Be encouraging, friendly, and always redirect conversations toward English pract
         
         const parsedResponse = JSON.parse(cleanResponse);
         
-        // Validate the response structure
+        // Validate the response structure and process suggestions
         if (parsedResponse.reply && parsedResponse.suggestions) {
-          res.json(parsedResponse);
+          // Transform the suggestions to include detailed grammar format
+          const suggestions = parsedResponse.suggestions;
+          
+          // Process grammar errors into a summary format for backward compatibility
+          let grammarSummary = '';
+          if (suggestions.grammar_errors && Array.isArray(suggestions.grammar_errors) && suggestions.grammar_errors.length > 0) {
+            grammarSummary = suggestions.grammar_errors.map((error, index) => 
+              `${index + 1}. "${error.error}" → "${error.correction}" (${error.explanation})`
+            ).join('\n');
+            
+            if (suggestions.spelling_errors && Array.isArray(suggestions.spelling_errors) && suggestions.spelling_errors.length > 0) {
+              const spellingSection = suggestions.spelling_errors.map((error, index) => 
+                `Spelling ${index + 1}: "${error.error}" → "${error.correction}"`
+              ).join('\n');
+              grammarSummary += '\n\nSpelling:\n' + spellingSection;
+            }
+          } else if (suggestions.spelling_errors && Array.isArray(suggestions.spelling_errors) && suggestions.spelling_errors.length > 0) {
+            grammarSummary = 'Spelling errors:\n' + suggestions.spelling_errors.map((error, index) => 
+              `${index + 1}. "${error.error}" → "${error.correction}"`
+            ).join('\n');
+          } else {
+            grammarSummary = suggestions.grammar_summary || 'No grammar or spelling errors found';
+          }
+          
+          res.json({
+            reply: parsedResponse.reply,
+            suggestions: {
+              grammar_fix: grammarSummary,
+              grammar_errors: suggestions.grammar_errors || [],
+              spelling_errors: suggestions.spelling_errors || [],
+              better_versions: suggestions.better_versions || [],
+              vocabulary: suggestions.vocabulary || []
+            }
+          });
         } else {
           // Fallback if structure is incorrect
           res.json({
@@ -931,18 +987,39 @@ app.post('/suggestions', async (req, res) => {
       messages: [
         {
           role: "system",
-          content: `You are an English teacher. Analyze the student's message and provide feedback in JSON format ONLY.
+          content: `You are an English teacher. Analyze the student's message and provide detailed feedback in JSON format ONLY.
 
 IMPORTANT: Your response must be valid JSON with exactly this structure:
 
 {
-  "grammar_fix": "Describe grammar errors and corrections, or 'No grammar errors found'",
-  "better_versions": ["improved version 1", "improved version 2", "improved version 3"],
+  "grammar_errors": [
+    {
+      "error": "incorrect text from student",
+      "correction": "correct version",
+      "explanation": "brief explanation of the rule",
+      "type": "grammar_type (e.g., tense, article, preposition, etc.)"
+    }
+  ],
+  "spelling_errors": [
+    {
+      "error": "misspelled word",
+      "correction": "correct spelling",
+      "context": "the phrase where it appears"
+    }
+  ],
+  "grammar_summary": "Overall summary of grammar quality or 'No grammar errors found'",
+  "better_versions": ["alternative way to express the same meaning (not just grammar correction)", "more sophisticated way to say the same thing", "more natural or idiomatic expression"],
   "vocabulary": [
     {"word": "word1", "meaning": "definition", "example": "example sentence"},
     {"word": "word2", "meaning": "definition", "example": "example sentence"}
   ]
 }
+
+Analyze EVERY grammar mistake, typo, and spelling error. Be thorough and specific. If no errors found, use empty arrays.
+
+IMPORTANT DISTINCTIONS:
+- "grammar_errors" and "spelling_errors": Fix specific mistakes in the student's text
+- "better_versions": Provide 3 ALTERNATIVE ways to express the SAME meaning using different vocabulary, sentence structure, or style. These should NOT be simple grammar corrections but different ways to communicate the same idea.
 
 DO NOT include any text before or after the JSON. DO NOT use markdown formatting. Return ONLY valid JSON.`
         },
@@ -1010,31 +1087,37 @@ DO NOT include any text before or after the JSON. DO NOT use markdown formatting
       const suggestions = JSON.parse(cleanResponse);
       console.log('Successfully parsed AI suggestions:', suggestions);
       
-      // Normalize the grammar_fix field to always be a string
-      let grammarFix = '';
-      if (Array.isArray(suggestions.grammar_fix)) {
-        // Convert array of error objects to readable string
-        grammarFix = suggestions.grammar_fix.map(item => {
-          if (typeof item === 'object' && item.error && item.correction) {
-            return `"${item.error}" should be "${item.correction}"`;
-          }
-          return item.toString();
-        }).join('; ');
-      } else if (typeof suggestions.grammar_fix === 'string') {
-        grammarFix = suggestions.grammar_fix;
+      // Transform the new detailed format to be backward compatible
+      let grammarSummary = '';
+      if (suggestions.grammar_errors && Array.isArray(suggestions.grammar_errors) && suggestions.grammar_errors.length > 0) {
+        // Create detailed grammar breakdown
+        grammarSummary = suggestions.grammar_errors.map((error, index) => 
+          `${index + 1}. "${error.error}" → "${error.correction}" (${error.explanation})`
+        ).join('\n');
+        
+        // Add spelling errors if any
+        if (suggestions.spelling_errors && Array.isArray(suggestions.spelling_errors) && suggestions.spelling_errors.length > 0) {
+          const spellingSection = suggestions.spelling_errors.map((error, index) => 
+            `Spelling ${index + 1}: "${error.error}" → "${error.correction}"`
+          ).join('\n');
+          grammarSummary += '\n\nSpelling:\n' + spellingSection;
+        }
+      } else if (suggestions.spelling_errors && Array.isArray(suggestions.spelling_errors) && suggestions.spelling_errors.length > 0) {
+        // Only spelling errors
+        grammarSummary = 'Spelling errors:\n' + suggestions.spelling_errors.map((error, index) => 
+          `${index + 1}. "${error.error}" → "${error.correction}"`
+        ).join('\n');
       } else {
-        grammarFix = suggestions.grammar_fix?.toString() || 'No grammar errors found';
+        grammarSummary = suggestions.grammar_summary || suggestions.grammar_fix || 'No grammar or spelling errors found';
       }
       
-      // Validate the response structure
-      if (!suggestions.better_versions || !suggestions.vocabulary) {
-        throw new Error('Invalid AI response structure');
-      }
-      
+      // Validate the response structure and provide defaults
       const normalizedResponse = {
-        grammar_fix: grammarFix,
-        better_versions: suggestions.better_versions,
-        vocabulary: suggestions.vocabulary
+        grammar_fix: grammarSummary,
+        grammar_errors: suggestions.grammar_errors || [],
+        spelling_errors: suggestions.spelling_errors || [],
+        better_versions: suggestions.better_versions || [],
+        vocabulary: suggestions.vocabulary || []
       };
       
       res.setHeader('Content-Type', 'application/json');

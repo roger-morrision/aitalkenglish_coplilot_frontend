@@ -1271,6 +1271,188 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                   const SizedBox(height: 12),
                 ],
                 
+                // Detailed Grammar Errors Section
+                if (message.suggestions!.grammarErrors.isNotEmpty) ...[
+                  Text(
+                    '🔍 Grammar Issues',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.red[700],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...message.suggestions!.grammarErrors.map((error) => 
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.red[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red[200]!),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.error_outline,
+                                color: Colors.red[600],
+                                size: 16,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Issue: "${error.error}"',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.red[800],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.check_circle_outline,
+                                color: Colors.green[600],
+                                size: 16,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Correct: "${error.correction}"',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.green[800],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (error.explanation.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Explanation: ${error.explanation}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[700],
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
+                          if (error.type.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.blue[100],
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                error.type,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.blue[700],
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ).toList(),
+                  const SizedBox(height: 12),
+                ],
+                
+                // Detailed Spelling Errors Section
+                if (message.suggestions!.spellingErrors.isNotEmpty) ...[
+                  Text(
+                    '📝 Spelling Issues',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.orange[700],
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  ...message.suggestions!.spellingErrors.map((error) => 
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange[200]!),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.text_format,
+                                color: Colors.orange[600],
+                                size: 16,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Misspelled: "${error.error}"',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.orange[800],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.check_circle_outline,
+                                color: Colors.green[600],
+                                size: 16,
+                              ),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  'Correct: "${error.correction}"',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.green[800],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (error.context.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'Context: ${error.context}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey[700],
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ).toList(),
+                  const SizedBox(height: 12),
+                ],
+                
                 // Better Versions Section
                 if (message.suggestions!.betterVersions.isNotEmpty) ...[
                   Text(
@@ -1341,13 +1523,60 @@ class _VocabularyItem {
   }
 }
 
+class _GrammarError {
+  final String error;
+  final String correction;
+  final String explanation;
+  final String type;
+  
+  _GrammarError({
+    required this.error,
+    required this.correction,
+    required this.explanation,
+    required this.type,
+  });
+  
+  factory _GrammarError.fromJson(Map<String, dynamic> json) {
+    return _GrammarError(
+      error: json['error']?.toString() ?? '',
+      correction: json['correction']?.toString() ?? '',
+      explanation: json['explanation']?.toString() ?? '',
+      type: json['type']?.toString() ?? '',
+    );
+  }
+}
+
+class _SpellingError {
+  final String error;
+  final String correction;
+  final String context;
+  
+  _SpellingError({
+    required this.error,
+    required this.correction,
+    required this.context,
+  });
+  
+  factory _SpellingError.fromJson(Map<String, dynamic> json) {
+    return _SpellingError(
+      error: json['error']?.toString() ?? '',
+      correction: json['correction']?.toString() ?? '',
+      context: json['context']?.toString() ?? '',
+    );
+  }
+}
+
 class _MessageSuggestions {
   final String grammarFix;
+  final List<_GrammarError> grammarErrors;
+  final List<_SpellingError> spellingErrors;
   final List<String> betterVersions;
   final List<_VocabularyItem> vocabulary;
   
   _MessageSuggestions({
     required this.grammarFix,
+    required this.grammarErrors,
+    required this.spellingErrors,
     required this.betterVersions,
     required this.vocabulary,
   });
@@ -1355,9 +1584,37 @@ class _MessageSuggestions {
   factory _MessageSuggestions.fromJson(Map<String, dynamic> json) {
     return _MessageSuggestions(
       grammarFix: json['grammar_fix']?.toString() ?? '',
+      grammarErrors: _parseGrammarErrors(json['grammar_errors']),
+      spellingErrors: _parseSpellingErrors(json['spelling_errors']),
       betterVersions: _parseStringList(json['better_versions']),
       vocabulary: _parseVocabularyList(json['vocabulary']),
     );
+  }
+  
+  static List<_GrammarError> _parseGrammarErrors(dynamic data) {
+    if (data == null) return [];
+    if (data is List) {
+      return data.map((item) {
+        if (item is Map<String, dynamic>) {
+          return _GrammarError.fromJson(item);
+        }
+        return _GrammarError(error: '', correction: '', explanation: '', type: '');
+      }).where((error) => error.error.isNotEmpty).toList();
+    }
+    return [];
+  }
+  
+  static List<_SpellingError> _parseSpellingErrors(dynamic data) {
+    if (data == null) return [];
+    if (data is List) {
+      return data.map((item) {
+        if (item is Map<String, dynamic>) {
+          return _SpellingError.fromJson(item);
+        }
+        return _SpellingError(error: '', correction: '', context: '');
+      }).where((error) => error.error.isNotEmpty).toList();
+    }
+    return [];
   }
   
   static List<String> _parseStringList(dynamic data) {
