@@ -1229,45 +1229,165 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
                 ),
                 const SizedBox(height: 12),
                 
-                // Grammar Fix Section
-                if (message.suggestions!.grammarFix.isNotEmpty) ...[
+                // Grammar Errors Section
+                if (message.suggestions!.grammarErrors.isNotEmpty) ...[
                   Text(
-                    '✏️ Grammar Check',
+                    '✏️ Grammar Issues',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: Colors.green[700],
+                      color: Colors.red[700],
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.green[50],
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.green[200]!),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            message.suggestions!.grammarFix,
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.green[800],
+                  const SizedBox(height: 8),
+                  ...message.suggestions!.grammarErrors.asMap().entries.map((entry) => 
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.red[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.red[200]!),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.red[100],
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  entry.value.type,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.red[800],
+                                  ),
+                                ),
+                              ),
+                              Spacer(),
+                              AudioPlayButton(
+                                text: entry.value.correction,
+                                size: 16,
+                                mini: true,
+                                color: Colors.red[700],
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 8),
+                          RichText(
+                            text: TextSpan(
+                              style: TextStyle(fontSize: 13, color: Colors.red[800]),
+                              children: [
+                                TextSpan(
+                                  text: '❌ Error: ',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                TextSpan(
+                                  text: '"${entry.value.error}"',
+                                  style: TextStyle(
+                                    fontStyle: FontStyle.italic,
+                                    decoration: TextDecoration.lineThrough,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        AudioPlayButton(
-                          text: message.suggestions!.grammarFix,
-                          size: 16,
-                          mini: true,
-                          color: Colors.green[700],
-                        ),
-                      ],
+                          SizedBox(height: 4),
+                          RichText(
+                            text: TextSpan(
+                              style: TextStyle(fontSize: 13, color: Colors.green[800]),
+                              children: [
+                                TextSpan(
+                                  text: '✅ Correction: ',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                TextSpan(
+                                  text: '"${entry.value.correction}"',
+                                  style: TextStyle(fontWeight: FontWeight.w500),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 6),
+                          Text(
+                            '💡 ${entry.value.explanation}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[700],
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ).toList(),
+                  const SizedBox(height: 12),
+                ],
+                
+                // Spelling Errors Section
+                if (message.suggestions!.spellingErrors.isNotEmpty) ...[
+                  Text(
+                    '📝 Spelling Issues',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.orange[700],
                     ),
                   ),
+                  const SizedBox(height: 8),
+                  ...message.suggestions!.spellingErrors.asMap().entries.map((entry) => 
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.orange[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.orange[200]!),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: RichText(
+                                  text: TextSpan(
+                                    style: TextStyle(fontSize: 13, color: Colors.orange[800]),
+                                    children: [
+                                      TextSpan(
+                                        text: '❌ "${entry.value.error}" → ✅ "${entry.value.correction}"',
+                                        style: TextStyle(fontWeight: FontWeight.w500),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              AudioPlayButton(
+                                text: entry.value.correction,
+                                size: 16,
+                                mini: true,
+                                color: Colors.orange[700],
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 6),
+                          Text(
+                            '💡 ${entry.value.explanation}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey[700],
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ).toList(),
                   const SizedBox(height: 12),
                 ],
                 
@@ -1507,6 +1627,49 @@ class _ChatMessage {
   _ChatMessage({required this.text, required this.isUser, this.suggestions});
 }
 
+class _GrammarError {
+  final String error;
+  final String correction;
+  final String explanation;
+  final String type;
+  
+  _GrammarError({
+    required this.error,
+    required this.correction,
+    required this.explanation,
+    required this.type,
+  });
+  
+  factory _GrammarError.fromJson(Map<String, dynamic> json) {
+    return _GrammarError(
+      error: json['error']?.toString() ?? '',
+      correction: json['correction']?.toString() ?? '',
+      explanation: json['explanation']?.toString() ?? '',
+      type: json['type']?.toString() ?? 'Grammar Error',
+    );
+  }
+}
+
+class _SpellingError {
+  final String error;
+  final String correction;
+  final String explanation;
+  
+  _SpellingError({
+    required this.error,
+    required this.correction,
+    required this.explanation,
+  });
+  
+  factory _SpellingError.fromJson(Map<String, dynamic> json) {
+    return _SpellingError(
+      error: json['error']?.toString() ?? '',
+      correction: json['correction']?.toString() ?? '',
+      explanation: json['explanation']?.toString() ?? '',
+    );
+  }
+}
+
 class _VocabularyItem {
   final String word;
   final String meaning;
@@ -1567,14 +1730,12 @@ class _SpellingError {
 }
 
 class _MessageSuggestions {
-  final String grammarFix;
   final List<_GrammarError> grammarErrors;
   final List<_SpellingError> spellingErrors;
   final List<String> betterVersions;
   final List<_VocabularyItem> vocabulary;
   
   _MessageSuggestions({
-    required this.grammarFix,
     required this.grammarErrors,
     required this.spellingErrors,
     required this.betterVersions,
@@ -1583,36 +1744,44 @@ class _MessageSuggestions {
   
   factory _MessageSuggestions.fromJson(Map<String, dynamic> json) {
     return _MessageSuggestions(
-      grammarFix: json['grammar_fix']?.toString() ?? '',
-      grammarErrors: _parseGrammarErrors(json['grammar_errors']),
-      spellingErrors: _parseSpellingErrors(json['spelling_errors']),
+      grammarErrors: _parseGrammarErrorList(json['grammar_errors']),
+      spellingErrors: _parseSpellingErrorList(json['spelling_errors']),
       betterVersions: _parseStringList(json['better_versions']),
       vocabulary: _parseVocabularyList(json['vocabulary']),
     );
   }
   
-  static List<_GrammarError> _parseGrammarErrors(dynamic data) {
+  static List<_GrammarError> _parseGrammarErrorList(dynamic data) {
     if (data == null) return [];
     if (data is List) {
       return data.map((item) {
         if (item is Map<String, dynamic>) {
           return _GrammarError.fromJson(item);
         }
-        return _GrammarError(error: '', correction: '', explanation: '', type: '');
-      }).where((error) => error.error.isNotEmpty).toList();
+        return _GrammarError(
+          error: 'Parse error',
+          correction: 'Unable to parse',
+          explanation: 'Invalid data format',
+          type: 'System Error',
+        );
+      }).toList();
     }
     return [];
   }
   
-  static List<_SpellingError> _parseSpellingErrors(dynamic data) {
+  static List<_SpellingError> _parseSpellingErrorList(dynamic data) {
     if (data == null) return [];
     if (data is List) {
       return data.map((item) {
         if (item is Map<String, dynamic>) {
           return _SpellingError.fromJson(item);
         }
-        return _SpellingError(error: '', correction: '', context: '');
-      }).where((error) => error.error.isNotEmpty).toList();
+        return _SpellingError(
+          error: 'Parse error',
+          correction: 'Unable to parse',
+          explanation: 'Invalid data format',
+        );
+      }).toList();
     }
     return [];
   }

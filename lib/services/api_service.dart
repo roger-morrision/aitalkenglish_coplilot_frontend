@@ -1,7 +1,6 @@
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import '../models/lesson.dart';
-import 'package:flutter/foundation.dart';
 import '../config/api_config.dart';
 
 class ApiService {
@@ -27,20 +26,14 @@ class ApiService {
     return jsonDecode(response.body);
   }
 
-  // Chat with AI
+  // Legacy method - now uses combined endpoint
   static Future<String> sendChatMessage(String message, {String? conversationId}) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/chat'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'message': message,
-        'conversation_id': conversationId,
-        'max_words': 100, // Limit response to maximum 100 words
-        'response_style': 'concise', // Request concise response style
-      }),
-    ).timeout(ApiConfig.chatTimeout); // Use configurable chat timeout
-    final data = jsonDecode(response.body);
-    return data['reply'] ?? 'Error';
+    final result = await sendChatMessageWithSuggestions(
+      message,
+      conversationId: conversationId,
+      includeSuggestions: false,
+    );
+    return result['reply'] ?? 'Error';
   }
 
   // Combined chat and suggestions to reduce API calls
@@ -87,18 +80,26 @@ class ApiService {
     }
   }
 
-  // Grammar correction
+  // Legacy method - now uses combined endpoint
   static Future<String> checkGrammar(String sentence) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/grammar'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'sentence': sentence}),
-    ).timeout(ApiConfig.generalApiTimeout);
-    final data = jsonDecode(response.body);
-    return data['correction'] ?? 'Error';
+    final result = await sendChatMessageWithSuggestions(
+      sentence,
+      includeSuggestions: true,
+    );
+    // Extract grammar correction from suggestions
+    if (result['suggestions'] != null) {
+      final suggestions = result['suggestions'];
+      if (suggestions['alternative_expressions'] != null) {
+        final alternatives = suggestions['alternative_expressions'];
+        if (alternatives is List && alternatives.isNotEmpty) {
+          return alternatives.first.toString();
+        }
+      }
+    }
+    return result['reply'] ?? 'Error';
   }
 
-  // Get message suggestions (grammar, better versions, vocabulary) with caching
+  // Legacy method - now uses combined endpoint
   static Future<Map<String, dynamic>> getMessageSuggestions(String message) async {
     print('=== API SERVICE DEBUG ===');
     print('API Service: getMessageSuggestions called with message: $message');
@@ -119,37 +120,24 @@ class ApiService {
     }
     
     print('API Service: Making fresh request for: $message');
-    print('API Service: Using baseUrl: $baseUrl');
-    print('API Service: Running on web: $kIsWeb');
     
     try {
-      final uri = Uri.parse('$baseUrl/suggestions');
-      print('API Service: Making request to: $uri');
+      // Use combined endpoint instead of separate suggestions endpoint
+      final result = await sendChatMessageWithSuggestions(
+        message,
+        includeSuggestions: true,
+      );
       
-      // Add timeout to prevent hanging
-      final response = await http.post(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'message': message}),
-      ).timeout(ApiConfig.suggestionsTimeout); // Use configurable suggestions timeout
+      // Extract suggestions from combined response
+      final suggestions = result['suggestions'] ?? {};
       
-      print('API Service: Response status: ${response.statusCode}');
-      print('API Service: Response body: ${response.body}');
+      // Cache the result
+      _suggestionsCache[cacheKey] = suggestions;
+      _cacheTimestamps[cacheKey] = DateTime.now();
       
-      if (response.statusCode == 200) {
-        final parsed = jsonDecode(response.body);
-        
-        // Cache the result
-        _suggestionsCache[cacheKey] = parsed;
-        _cacheTimestamps[cacheKey] = DateTime.now();
-        
-        print('API Service: Successfully parsed and cached response: $parsed');
-        print('=== END API SERVICE DEBUG ===');
-        return parsed;
-      } else {
-        print('API Service: HTTP error ${response.statusCode}: ${response.body}');
-        throw Exception('HTTP ${response.statusCode}: ${response.body}');
-      }
+      print('API Service: Successfully parsed and cached response: $suggestions');
+      print('=== END API SERVICE DEBUG ===');
+      return suggestions;
     } catch (e) {
       print('API Service: Request failed with error: $e');
       print('API Service: Error type: ${e.runtimeType}');

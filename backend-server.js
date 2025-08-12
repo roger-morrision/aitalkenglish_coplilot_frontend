@@ -871,140 +871,8 @@ app.post("/user/:userId/track-message", (req, res) => {
   );
 });
 
-// Chat endpoint
-app.post("/chat", async (req, res) => {
-  console.log("=== Chat API Called ===");
-  console.log("Request method:", req.method);
-  console.log("Request headers:", req.headers);
-  console.log("Request body:", req.body);
-  console.log("Request origin:", req.headers.origin);
-
-  const { message } = req.body;
-
-  // Check if API key is configured
-  if (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === "your_api_key_here") {
-    // Provide a fallback response for demo purposes
-    const demoResponses = [
-      "That's a great question! I'm here to help you learn English. What would you like to practice today?",
-      "Excellent! Let's work on improving your English skills. Would you like to focus on grammar, vocabulary, or conversation?",
-      "I understand what you're saying. English can be challenging, but with practice, you'll get better! What specific area would you like help with?",
-      "Good job on expressing yourself! Remember, making mistakes is part of learning. Keep practicing!",
-      "That's an interesting point! In English, we would typically say... Would you like me to explain the grammar rule behind this?",
-    ];
-    const randomResponse =
-      demoResponses[Math.floor(Math.random() * demoResponses.length)];
-    return res.json({ reply: `[Demo Mode] ${randomResponse}` });
-  }
-
-  try {
-    // Get the currently selected AI model
-    const selectedModel = await getSelectedModel();
-    console.log("Chat API using model:", selectedModel);
-
-    // Use the same configuration as the working suggestions endpoint
-    const response = await axios.post(
-      OPENROUTER_BASE_URL,
-      {
-        model: selectedModel,
-        messages: [
-          {
-            role: "system",
-            content:
-              'You are an English language learning tutor, NOT a general AI assistant. Your ONLY job is to help users practice and improve their English. Always stay focused on English learning topics. If users ask about other topics (like technology, science, etc.), gently redirect them back to English learning while still being helpful. \n\nWhen responding:\n1. If their English has errors, start with "A better way to say this would be: [corrected version]"\n2. Then engage with their topic in a natural, conversational way\n3. End with a follow-up question to encourage more English practice\n4. Keep responses 50-80 words\n5. Never discuss AI, language models, or technical topics - focus only on English learning\n\nBe encouraging, friendly, and always redirect conversations toward English practice.',
-          },
-          { role: "user", content: message },
-        ],
-        max_tokens: 300,
-        temperature: 0.7,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 30000,
-      }
-    );
-
-    console.log(
-      "Chat API Success - AI Response:",
-      response.data.choices[0].message.content
-    );
-    res.json({ reply: response.data.choices[0].message.content });
-  } catch (err) {
-    console.error("Chat API Error Details:");
-    console.error("- Error message:", err.message);
-    console.error("- Response status:", err.response?.status);
-    console.error("- Response data:", err.response?.data);
-    console.error("- Full error:", err);
-
-    // Handle specific API errors with intelligent fallbacks
-    if (err.response?.status === 429) {
-      // Rate limit - provide intelligent contextual response
-      const lowerMessage = message.toLowerCase();
-      let contextualResponse;
-
-      if (lowerMessage.includes("english") || lowerMessage.includes("learn")) {
-        contextualResponse =
-          "I'd love to help you with your English learning! The AI service is currently busy, but I can still chat with you. Your question about improving English naturally is great - practicing with real conversations like this is one of the best ways to improve. What specific area of English would you like to focus on right now?";
-      } else if (
-        lowerMessage.includes("speak") ||
-        lowerMessage.includes("speaking")
-      ) {
-        contextualResponse =
-          "Speaking practice is so important! Even though our AI service is temporarily busy, I can still help you practice. The key to natural speaking is regular conversation and not being afraid to make mistakes. What topics do you enjoy talking about most?";
-      } else {
-        contextualResponse =
-          "I'm experiencing high demand right now, but I'm still here to chat! Your message is interesting and I'd love to continue our conversation. What would you like to explore further?";
-      }
-
-      return res.json({ reply: `[Temporary AI Limit] ${contextualResponse}` });
-    } else if (err.response?.status === 402) {
-      return res.json({
-        reply:
-          "[AI Service Quota] I'm temporarily unable to access the full AI service, but I'm still here to help you practice English! Let's keep chatting - what would you like to talk about?",
-      });
-    } else if (err.code === "ECONNABORTED" || err.message.includes("timeout")) {
-      return res.json({
-        reply:
-          "[Connection Timeout] The AI service is taking longer than usual to respond. While we wait, let's continue our conversation! What interesting things have you been learning lately?",
-      });
-    } else {
-      // Provide intelligent contextual responses instead of generic fallbacks
-      const lowerMessage = message.toLowerCase();
-      let demoResponse;
-
-      // Provide contextual responses based on the actual message content
-      if (
-        lowerMessage.includes("english") &&
-        lowerMessage.includes("natural")
-      ) {
-        demoResponse =
-          "A better way to say this would be: 'How can I speak English more naturally in a short time? Is talking with AI a better option, and which AI app is best suited?' Speaking English naturally comes from practice and exposure! Talking with AI can definitely help because you can practice anytime without feeling embarrassed. What specific situations do you want to feel more confident in when speaking English?";
-      } else if (lowerMessage.includes("pickleball")) {
-        demoResponse =
-          "A better way to phrase this would be: 'I need to keep practicing pickleball. I want to become a stronger player. Are there any exercises I can follow?' Pickleball is such a fun sport! To get stronger, focus on footwork drills, paddle control exercises, and core strengthening. Regular practice with varied opponents also helps tremendously. What specific aspect of your pickleball game would you most like to improve?";
-      } else if (
-        lowerMessage.includes("hello") ||
-        lowerMessage.includes("hi")
-      ) {
-        demoResponse =
-          "Hello there! It's so nice to meet you! I'm here to be your English conversation partner and help you practice speaking naturally. I love chatting about anything and everything. What's something interesting that happened to you today, or is there a particular topic you'd like to talk about?";
-      } else if (
-        lowerMessage.includes("help") ||
-        lowerMessage.includes("learn")
-      ) {
-        demoResponse =
-          "I'm absolutely delighted to help you with your English! Learning a language is such an exciting journey, and I'm here to make it fun and natural. We can chat about your hobbies, dreams, daily life, or anything that interests you. What would you like to start talking about today?";
-      } else {
-        demoResponse =
-          "That's really interesting! I love having natural conversations like this because it's exactly how you'll use English in real life. Every time you share something with me, you're building your confidence and fluency. What else would you like to chat about, or is there something specific about English that you're curious about?";
-      }
-
-      return res.json({ reply: `[Demo Mode] ${demoResponse}` });
-    }
-  }
-});
+// LEGACY ENDPOINT REMOVED - Use /chat-with-suggestions instead
+// This endpoint has been consolidated to save AI tokens
 
 // Combined chat and suggestions endpoint to reduce API calls
 app.post("/chat-with-suggestions", async (req, res) => {
@@ -1066,8 +934,13 @@ Your response must be valid JSON with exactly this structure:
 {
   "reply": "Your conversational response to the student (50-80 words, engaging and encouraging)",
   "suggestions": {
-    "grammar_fix": "Describe grammar errors and corrections, or 'No grammar errors found'",
-    "better_versions": ["improved version 1", "improved version 2", "improved version 3"],
+    "grammar_errors": [
+      {"error": "specific incorrect phrase or word", "correction": "correct version", "explanation": "why this is wrong and rule explanation", "type": "grammar error type (e.g., subject-verb agreement, article usage, etc.)"}
+    ],
+    "spelling_errors": [
+      {"error": "misspelled word", "correction": "correct spelling", "explanation": "spelling rule or common mistake explanation"}
+    ],
+    "better_versions": ["3 different improved ways to express the same message as the student"],
     "vocabulary": [
       {"word": "word1", "meaning": "definition", "example": "example sentence"},
       {"word": "word2", "meaning": "definition", "example": "example sentence"}
@@ -1083,9 +956,13 @@ Guidelines for reply:
 5. Focus only on English learning topics
 
 Guidelines for suggestions:
-- Analyze their English for grammar, vocabulary, and style
-- Provide constructive feedback and improvements
+- Analyze their English carefully for grammar, spelling, and style issues
+- For "grammar_errors": List each specific grammar mistake with detailed explanations point by point
+- For "spelling_errors": List each spelling mistake with corrections
+- For "better_versions": Create 3 alternative ways to express the EXACT SAME meaning as the student's original message, but with improved grammar, vocabulary, or style
+- These should be different from your chat response - they are improved versions of the STUDENT'S message, not new responses
 - Include relevant vocabulary with definitions and examples
+- If no errors found, use empty arrays for grammar_errors and spelling_errors
 
 DO NOT include any text before or after the JSON. Return ONLY valid JSON.`
       : `You are an English language learning tutor, NOT a general AI assistant. Your ONLY job is to help users practice and improve their English. Always stay focused on English learning topics.
@@ -1156,7 +1033,8 @@ Be encouraging, friendly, and always redirect conversations toward English pract
           res.json({
             reply: parsedResponse.reply || aiResponse,
             suggestions: parsedResponse.suggestions || {
-              grammar_fix: "Unable to analyze grammar at this time",
+              grammar_errors: [],
+              spelling_errors: [],
               better_versions: ["Please try again for better suggestions"],
               vocabulary: [],
             },
@@ -1168,7 +1046,8 @@ Be encouraging, friendly, and always redirect conversations toward English pract
         res.json({
           reply: aiResponse,
           suggestions: {
-            grammar_fix: "Analysis unavailable in this response format",
+            grammar_errors: [],
+            spelling_errors: [],
             better_versions: ["Please try sending your message again"],
             vocabulary: [],
           },
@@ -1193,7 +1072,8 @@ Be encouraging, friendly, and always redirect conversations toward English pract
 
       if (include_suggestions) {
         result.suggestions = {
-          grammar_fix: "Rate limit reached - unable to check grammar right now",
+          grammar_errors: [],
+          spelling_errors: [],
           better_versions: [
             "The AI service is temporarily busy. Please try again in a moment.",
             "Your message was received successfully!",
@@ -1234,397 +1114,11 @@ Be encouraging, friendly, and always redirect conversations toward English pract
 });
 
 // Grammar & Vocabulary suggestions endpoint (kept for backward compatibility)
-app.post("/suggestions", async (req, res) => {
-  console.log("=== Suggestions API Called ===");
-  console.log("Request method:", req.method);
-  console.log("Request headers:", req.headers);
-  console.log("Request body:", req.body);
-  console.log("Request origin:", req.headers.origin);
+// LEGACY ENDPOINT REMOVED - Use /chat-with-suggestions instead
+// This endpoint has been consolidated to save AI tokens
 
-  // Handle both 'text' and 'message' field names for compatibility
-  const { text, message } = req.body;
-  const inputText = text || message;
-
-  console.log("Processing message:", inputText);
-
-  // Check if we have valid input
-  if (!inputText) {
-    return res.status(400).json({
-      error: 'No text provided. Please send either "text" or "message" field.',
-    });
-  }
-
-  // Check if API key is configured
-  if (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === "your_api_key_here") {
-    return res.status(500).json({
-      error: "AI service not configured. Please configure OpenRouter API key.",
-    });
-  }
-
-  console.log("Using OpenRouter API for intelligent suggestions");
-
-  try {
-    // Get the currently selected AI model
-    const selectedModel = await getSelectedModel();
-    console.log("Suggestions API using model:", selectedModel);
-
-    // Use the selected model for suggestions
-    const response = await axios.post(
-      OPENROUTER_BASE_URL,
-      {
-        model: selectedModel,
-        messages: [
-          {
-            role: "system",
-            content: `You are an English teacher. Analyze the student's message and provide feedback in JSON format ONLY.
-
-IMPORTANT: Your response must be valid JSON with exactly this structure:
-
-{
-  "grammar_fix": "Describe grammar errors and corrections, or 'No grammar errors found'",
-  "better_versions": ["improved version 1", "improved version 2", "improved version 3"],
-  "vocabulary": [
-    {"word": "word1", "meaning": "definition", "example": "example sentence"},
-    {"word": "word2", "meaning": "definition", "example": "example sentence"}
-  ]
-}
-
-DO NOT include any text before or after the JSON. DO NOT use markdown formatting. Return ONLY valid JSON.`,
-          },
-          {
-            role: "user",
-            content: `Analyze: "${inputText}"`,
-          },
-        ],
-        max_tokens: 600,
-        temperature: 0.3,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 30000,
-      }
-    );
-
-    console.log("OpenRouter API Response Status:", response.status);
-    console.log(
-      "OpenRouter API Response Data:",
-      JSON.stringify(response.data, null, 2)
-    );
-
-    if (!response.data || !response.data.choices || !response.data.choices[0]) {
-      throw new Error("Invalid API response structure");
-    }
-
-    const aiResponse = response.data.choices[0].message.content;
-    console.log("Suggestions API Success - AI Response:", aiResponse);
-
-    // Clean the response - remove any markdown formatting
-    let cleanResponse = aiResponse.trim();
-    if (cleanResponse.startsWith("```json")) {
-      cleanResponse = cleanResponse
-        .replace(/^```json\s*/, "")
-        .replace(/\s*```$/, "");
-    } else if (cleanResponse.startsWith("```")) {
-      cleanResponse = cleanResponse
-        .replace(/^```\s*/, "")
-        .replace(/\s*```$/, "");
-    }
-
-    // Handle case where AI returns text description instead of JSON
-    if (!cleanResponse.startsWith("{") || !cleanResponse.endsWith("}")) {
-      console.log("AI returned non-JSON response:", cleanResponse);
-
-      // Extract meaningful information from the text response
-      const grammarFix =
-        cleanResponse.includes("error") && cleanResponse.includes("correction")
-          ? cleanResponse
-          : "The AI provided feedback in an unexpected format. Please try again.";
-
-      return res.status(200).json({
-        grammar_fix: grammarFix,
-        better_versions: [
-          "Please try your message again for better suggestions.",
-          "The AI analysis needs to be reformatted.",
-          "Consider rephrasing your input for clearer feedback.",
-        ],
-        vocabulary: [
-          {
-            word: "reformatted",
-            meaning: "arranged in a different format",
-            example: "The data was reformatted for better clarity.",
-          },
-        ],
-      });
-    }
-
-    // Parse the JSON response
-    try {
-      const suggestions = JSON.parse(cleanResponse);
-      console.log("Successfully parsed AI suggestions:", suggestions);
-
-      // Normalize the grammar_fix field to always be a string
-      let grammarFix = "";
-      if (Array.isArray(suggestions.grammar_fix)) {
-        // Convert array of error objects to readable string
-        grammarFix = suggestions.grammar_fix
-          .map((item) => {
-            if (typeof item === "object" && item.error && item.correction) {
-              return `"${item.error}" should be "${item.correction}"`;
-            }
-            return item.toString();
-          })
-          .join("; ");
-      } else if (typeof suggestions.grammar_fix === "string") {
-        grammarFix = suggestions.grammar_fix;
-      } else {
-        grammarFix =
-          suggestions.grammar_fix?.toString() || "No grammar errors found";
-      }
-
-      // Validate the response structure
-      if (!suggestions.better_versions || !suggestions.vocabulary) {
-        throw new Error("Invalid AI response structure");
-      }
-
-      const normalizedResponse = {
-        grammar_fix: grammarFix,
-        better_versions: suggestions.better_versions,
-        vocabulary: suggestions.vocabulary,
-      };
-
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.status(200).json(normalizedResponse);
-    } catch (parseError) {
-      console.error("Failed to parse AI response as JSON:", parseError);
-      console.error("AI response was:", cleanResponse);
-
-      // Try to extract useful information from the malformed response
-      let grammarFix = "Grammar analysis unavailable";
-      let betterVersions = ["Please try rephrasing your message"];
-      let vocabulary = [
-        {
-          word: "retry",
-          meaning: "to try again",
-          example: "Please retry your request.",
-        },
-      ];
-
-      // Look for error/correction patterns in the response
-      if (
-        cleanResponse.includes("error") &&
-        cleanResponse.includes("correction")
-      ) {
-        // Extract text between error and correction
-        const match = cleanResponse.match(
-          /error:?\s*([^,}]+).*correction:?\s*([^,}]+)/i
-        );
-        if (match) {
-          const errorText = match[1].trim();
-          const correctionText = match[2].trim();
-          grammarFix = `Error: "${errorText}" should be "${correctionText}"`;
-          betterVersions = [
-            correctionText,
-            `Try using: ${correctionText}`,
-            `Correct form: ${correctionText}`,
-          ];
-        }
-      }
-
-      return res.status(200).json({
-        grammar_fix: grammarFix,
-        better_versions: betterVersions,
-        vocabulary: vocabulary,
-      });
-    }
-  } catch (err) {
-    console.error("Suggestions API Error Details:");
-    console.error("- Error message:", err.message);
-    console.error("- Response status:", err.response?.status);
-    console.error("- Response data:", err.response?.data);
-    console.error("- Full error:", err);
-
-    // Handle specific API errors with intelligent fallbacks
-    if (err.response?.status === 429) {
-      return res.status(200).json({
-        grammar_fix: "Rate limit reached - unable to check grammar right now",
-        better_versions: [
-          "The AI service is temporarily busy. Please try again in a moment.",
-          "Your message was received successfully.",
-          "Rate limit will reset shortly.",
-        ],
-        vocabulary: [
-          {
-            word: "patience",
-            meaning: "the ability to wait calmly",
-            example: "Please have patience while the service recovers.",
-          },
-        ],
-      });
-    } else if (err.response?.status === 402) {
-      return res.status(200).json({
-        grammar_fix: "AI service quota exceeded",
-        better_versions: [
-          "The AI analysis service has reached its daily limit.",
-          "Basic conversation mode is still available.",
-          "Suggestions will resume when quota resets.",
-        ],
-        vocabulary: [
-          {
-            word: "quota",
-            meaning: "a limited quantity of something",
-            example: "The daily quota for API calls has been reached.",
-          },
-        ],
-      });
-    } else if (err.code === "ECONNABORTED" || err.message.includes("timeout")) {
-      return res.status(200).json({
-        grammar_fix: "Connection timeout - analysis unavailable",
-        better_versions: [
-          "The AI service is taking longer than usual to respond.",
-          "Your conversation can continue without suggestions.",
-          "Suggestions will work again when connection improves.",
-        ],
-        vocabulary: [
-          {
-            word: "timeout",
-            meaning: "when a process takes too long to complete",
-            example: "The request failed due to a network timeout.",
-          },
-        ],
-      });
-    } else {
-      // Provide intelligent contextual suggestions as fallback
-      const lowerMessage = inputText.toLowerCase();
-
-      if (lowerMessage.includes("food") || lowerMessage.includes("meal")) {
-        return res.status(200).json({
-          grammar_fix: "Grammar help temporarily unavailable",
-          better_versions: [
-            "What foods should I eat for each meal to stay healthy?",
-            "Which foods are best for maintaining good health?",
-            "What dietary choices help keep the body youthful?",
-          ],
-          vocabulary: [
-            {
-              word: "nutrition",
-              meaning: "the process of providing food necessary for health",
-              example: "Good nutrition is essential for staying healthy.",
-            },
-            {
-              word: "balanced",
-              meaning: "having different elements in correct proportions",
-              example:
-                "A balanced diet includes vegetables, proteins, and grains.",
-            },
-          ],
-        });
-      } else {
-        return res.status(200).json({
-          grammar_fix: "AI suggestions temporarily unavailable",
-          better_versions: [
-            "Your message was understood clearly.",
-            "Continue practicing - you're doing great!",
-            "Suggestions will be available again soon.",
-          ],
-          vocabulary: [
-            {
-              word: "practice",
-              meaning: "to do something repeatedly to improve skill",
-              example: "Regular practice helps improve English fluency.",
-            },
-          ],
-        });
-      }
-    }
-  }
-});
-
-// Grammar correction endpoint
-app.post("/grammar", async (req, res) => {
-  const { sentence } = req.body;
-
-  // Check if API key is configured
-  if (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === "your_api_key_here") {
-    // Simple grammar correction for demo
-    let corrected = sentence;
-
-    // Basic corrections for common errors
-    corrected = corrected.replace(/\bi\b/g, "I");
-    corrected = corrected.replace(/their is/gi, "there is");
-    corrected = corrected.replace(/alot/gi, "a lot");
-    corrected = corrected.replace(/\bwont\b/gi, "won't");
-    corrected = corrected.replace(/\bdont\b/gi, "don't");
-
-    return res.json({ correction: `[Demo Mode] ${corrected}` });
-  }
-
-  try {
-    // Get the currently selected AI model
-    const selectedModel = await getSelectedModel();
-    console.log("Grammar API using model:", selectedModel);
-
-    const response = await axios.post(
-      OPENROUTER_BASE_URL,
-      {
-        model: selectedModel,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a grammar teacher. Correct the given text and briefly explain any errors.",
-          },
-          { role: "user", content: sentence },
-        ],
-        max_tokens: 300,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    res.json({ correction: response.data.choices[0].message.content });
-  } catch (err) {
-    console.error("Grammar API Error:", err.message);
-
-    // Provide demo grammar correction
-    let corrected = sentence;
-    let explanation = "";
-
-    // Common grammar corrections
-    if (
-      sentence.includes(" are ") &&
-      (sentence.includes("I ") ||
-        sentence.includes("He ") ||
-        sentence.includes("She "))
-    ) {
-      corrected = sentence
-        .replace(/I are/gi, "I am")
-        .replace(/He are/gi, "He is")
-        .replace(/She are/gi, "She is");
-      explanation = " (Corrected subject-verb agreement)";
-    } else if (sentence.includes("their is")) {
-      corrected = sentence.replace(/their is/gi, "there is");
-      explanation = " (Changed 'their' to 'there')";
-    } else if (sentence.includes("alot")) {
-      corrected = sentence.replace(/alot/gi, "a lot");
-      explanation = " ('A lot' should be two words)";
-    } else {
-      // Basic capitalization
-      corrected = sentence.replace(/\bi\b/g, "I");
-      if (corrected !== sentence) {
-        explanation = " (Capitalized 'I')";
-      }
-    }
-
-    res.json({ correction: `[Demo Mode] ${corrected}${explanation}` });
-  }
-});
+// LEGACY ENDPOINT REMOVED - Use /chat-with-suggestions instead
+// This endpoint has been consolidated to save AI tokens
 
 // Vocabulary endpoints
 app.get("/vocab", (req, res) => {
