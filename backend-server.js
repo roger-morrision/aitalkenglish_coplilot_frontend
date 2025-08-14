@@ -2387,6 +2387,37 @@ app.get("/user/:userId/grammar/topic/:topicId/exercises-with-progress", (req, re
   );
 });
 
+// Clear user progress for a specific topic (reset quiz)
+app.delete("/user/:userId/grammar/topic/:topicId/progress", (req, res) => {
+  const { userId, topicId } = req.params;
+
+  if (!userId || !topicId) {
+    return res.status(400).json({ error: "userId and topicId are required" });
+  }
+
+  // Delete all progress records for this user and topic
+  db.run(
+    `DELETE FROM user_grammar_progress 
+     WHERE user_id = ? AND exercise_id IN (
+       SELECT id FROM grammar_exercises WHERE topic_id = ?
+     )`,
+    [userId, topicId],
+    function (err) {
+      if (err) {
+        console.error("Error clearing user progress:", err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      console.log(`Cleared ${this.changes} progress records for user ${userId} in topic ${topicId}`);
+      res.json({ 
+        success: true, 
+        deletedCount: this.changes,
+        message: `Cleared progress for ${this.changes} exercises` 
+      });
+    }
+  );
+});
+
 // ===========================================
 // GRAMMAR EXPLANATIONS API ENDPOINTS
 // ===========================================

@@ -792,4 +792,17 @@ class ApiService {
       throw Exception('Failed to load grammar study results: ${response.body}');
     }
   }
+
+  // Clear user progress for a specific topic (reset quiz)
+  static Future<Map<String, dynamic>> clearUserTopicProgress(String userId, String topicId) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/user/$userId/grammar/topic/$topicId/progress'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to clear topic progress: ${response.body}');
+    }
+  }
 }

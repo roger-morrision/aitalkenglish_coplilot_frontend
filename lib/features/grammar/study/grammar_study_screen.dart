@@ -149,6 +149,13 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
 
   String? userId;
 
+  // Exercise quiz state
+  Map<String, int?> exerciseAnswers = {}; // exerciseId -> selectedAnswerIndex
+  bool showResults = false;
+  double? score;
+  int? correctAnswers;
+  int? totalQuestions;
+
   @override
   void initState() {
     super.initState();
@@ -226,12 +233,21 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
       loading = true;
       error = null;
       exercises = [];
+      // Reset quiz state when loading new exercises
+      exerciseAnswers.clear();
+      showResults = false;
+      score = null;
+      correctAnswers = null;
+      totalQuestions = null;
     });
     try {
       if (userId != null) {
         // Fetch exercises with user progress
         final data = await ApiService.getGrammarExercisesWithProgress(userId!, topicId);
         exercises = data.map((e) => GrammarExercise.fromJson(e)).toList();
+        
+        // Check if user has already completed all exercises in this topic
+        _checkAndRestoreCompletedQuiz();
       } else {
         // Fallback to exercises without progress
         final data = await ApiService.getGrammarExercises(topicId);
@@ -250,6 +266,39 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
     setState(() {
       loading = false;
     });
+  }
+
+  void _checkAndRestoreCompletedQuiz() {
+    // Check if all exercises have been completed
+    if (exercises.isNotEmpty && exercises.every((ex) => ex.hasUserCompleted)) {
+      // Restore the previous quiz results
+      int correct = 0;
+      exerciseAnswers.clear();
+      
+      for (final exercise in exercises) {
+        if (exercise.userResult != null) {
+          final selectedAnswer = exercise.userResult!['selectedAnswer'] as int?;
+          final isCorrect = exercise.userResult!['isCorrect'] as bool? ?? false;
+          
+          if (selectedAnswer != null) {
+            exerciseAnswers[exercise.id] = selectedAnswer;
+            if (isCorrect) {
+              correct++;
+            }
+          }
+        }
+      }
+      
+      // Only show results if we have answers for all exercises
+      if (exerciseAnswers.length == exercises.length) {
+        setState(() {
+          showResults = true;
+          correctAnswers = correct;
+          totalQuestions = exercises.length;
+          score = correct / exercises.length;
+        });
+      }
+    }
   }
 
   void _selectCategory(GrammarCategory category) {
@@ -275,35 +324,6 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
       showingTopicExplanation = false;
     });
     _fetchExercises(selectedTopic!.id);
-  }
-
-  void _onExerciseCompleted({
-    required GrammarExercise exercise,
-    required bool isCorrect,
-    required int selectedAnswer,
-  }) async {
-    setState(() {
-      completedExercises++;
-      if (completedExercises % 3 == 0) {
-        userLevel++;
-      }
-    });
-    // Save to backend
-    if (userId != null && selectedCategory != null && selectedTopic != null) {
-      try {
-        await ApiService.saveGrammarStudyResult(
-          userId: userId!,
-          categoryId: selectedCategory!.id,
-          topicId: selectedTopic!.id,
-          exerciseId: exercise.id,
-          isCorrect: isCorrect,
-          selectedAnswer: selectedAnswer,
-        );
-      } catch (e) {
-        print('Error saving grammar result: $e');
-        // ignore error for now
-      }
-    }
   }
 
   @override
@@ -799,19 +819,261 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
     if (exercises.isEmpty) {
       return const Center(child: Text('No exercises found.'));
     }
-    return ListView(
-      children: exercises
-          .map(
-            (ex) => Card(
-              child: GrammarExerciseWidget(
-                exercise: ex,
-                onCompleted: (bool isCorrect, int selectedAnswer) =>
-                    _onExerciseCompleted(exercise: ex, isCorrect: isCorrect, selectedAnswer: selectedAnswer),
-              ),
-            ),
-          )
-          .toList(),
+    
+    return Column(
+      children: [
+        // Submit/Reset Buttons at the top
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            children: [
+              if (!showResults) ...[
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _canSubmit() ? _submitAnswers : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: Text(
+                      'Submit All Answers (${_getAnsweredCount()}/${exercises.length})',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ] else ...[
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.shade50,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.blue.shade200),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          'Quiz Results 📊',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade800,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Score: ${correctAnswers!}/${totalQuestions!} (${(score! * 100).toInt()}%)',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: score! >= 0.7 ? Colors.green.shade700 : Colors.orange.shade700,
+                          ),
+                        ),
+                        if (score! >= 0.7) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '🎉 Great job!',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.green.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '💪 Keep practicing!',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.orange.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: _resetQuiz,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                  ),
+                  child: const Text(
+                    'Retake Quiz',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        // Exercises List
+        Expanded(
+          child: ListView(
+            children: exercises.asMap().entries.map((entry) {
+              final index = entry.key;
+              final ex = entry.value;
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(8),
+                          topRight: Radius.circular(8),
+                        ),
+                      ),
+                      child: Text(
+                        'Question ${index + 1}',
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ),
+                    GrammarExerciseWidget(
+                      exercise: ex,
+                      onAnswerChanged: (int? answer) {
+                        setState(() {
+                          exerciseAnswers[ex.id] = answer;
+                        });
+                      },
+                      selectedAnswer: exerciseAnswers[ex.id],
+                      showResults: showResults,
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+      ],
     );
+  }
+
+  bool _canSubmit() {
+    return exerciseAnswers.length == exercises.length && 
+           exerciseAnswers.values.every((answer) => answer != null);
+  }
+
+  int _getAnsweredCount() {
+    return exerciseAnswers.values.where((answer) => answer != null).length;
+  }
+
+  void _submitAnswers({bool isRestoring = false}) {
+    if (!_canSubmit()) return;
+
+    int correct = 0;
+    int total = exercises.length;
+
+    for (final exercise in exercises) {
+      final selectedAnswer = exerciseAnswers[exercise.id];
+      if (selectedAnswer == exercise.correctIndex) {
+        correct++;
+      }
+    }
+
+    setState(() {
+      showResults = true;
+      correctAnswers = correct;
+      totalQuestions = total;
+      score = correct / total;
+    });
+
+    // Only save results and show snackbar for new submissions
+    if (!isRestoring) {
+      // Save results to backend
+      _saveQuizResults();
+
+      // Show completion message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Quiz completed! You scored ${correct}/${total} (${((correct / total) * 100).toInt()}%)',
+          ),
+          backgroundColor: correct >= total * 0.7 ? Colors.green : Colors.orange,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  void _resetQuiz() {
+    setState(() {
+      exerciseAnswers.clear();
+      showResults = false;
+      score = null;
+      correctAnswers = null;
+      totalQuestions = null;
+    });
+
+    // Clear previous results from backend
+    _clearPreviousResults();
+  }
+
+  Future<void> _clearPreviousResults() async {
+    if (userId == null || selectedTopic == null) return;
+
+    try {
+      final result = await ApiService.clearUserTopicProgress(userId!, selectedTopic!.id);
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result['message'] ?? 'Previous quiz results cleared successfully',
+          ),
+          backgroundColor: Colors.blue,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+
+      // Refresh exercises to remove any previous completion status
+      _fetchExercises(selectedTopic!.id);
+      
+    } catch (e) {
+      print('Error clearing previous results: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to clear previous results, but you can still retake the quiz'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveQuizResults() async {
+    if (userId == null || selectedTopic == null || selectedCategory == null) return;
+
+    try {
+      // Save individual exercise results
+      for (final exercise in exercises) {
+        final selectedAnswer = exerciseAnswers[exercise.id];
+        final isCorrect = selectedAnswer == exercise.correctIndex;
+        
+        await ApiService.saveGrammarStudyResult(
+          userId: userId!,
+          categoryId: selectedCategory!.id,
+          topicId: selectedTopic!.id,
+          exerciseId: exercise.id,
+          isCorrect: isCorrect,
+          selectedAnswer: selectedAnswer ?? -1,
+        );
+      }
+    } catch (e) {
+      print('Error saving quiz results: $e');
+    }
   }
 
   Color _getLevelColor(String level) {
@@ -830,10 +1092,14 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
 
 class GrammarExerciseWidget extends StatefulWidget {
   final GrammarExercise exercise;
-  final void Function(bool isCorrect, int selectedAnswer) onCompleted;
+  final void Function(int? selectedAnswer) onAnswerChanged;
+  final int? selectedAnswer;
+  final bool showResults;
   const GrammarExerciseWidget({
     required this.exercise,
-    required this.onCompleted,
+    required this.onAnswerChanged,
+    this.selectedAnswer,
+    this.showResults = false,
     super.key,
   });
 
@@ -842,22 +1108,12 @@ class GrammarExerciseWidget extends StatefulWidget {
 }
 
 class _GrammarExerciseWidgetState extends State<GrammarExerciseWidget> {
-  int? selectedIndex;
-  bool answered = false;
-
-  @override
-  void initState() {
-    super.initState();
-    // If the exercise was already completed, show the previous result
-    if (widget.exercise.hasUserCompleted && widget.exercise.userResult != null) {
-      answered = true;
-      selectedIndex = widget.exercise.userResult!['selectedAnswer'] as int?;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final correctIndex = widget.exercise.correctIndex;
+    final selectedIndex = widget.selectedAnswer;
+    final showResults = widget.showResults;
+    
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Column(
@@ -871,31 +1127,17 @@ class _GrammarExerciseWidgetState extends State<GrammarExerciseWidget> {
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
                 ),
               ),
-              if (widget.exercise.hasUserCompleted)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: widget.exercise.userResult!['isCorrect'] == true
-                        ? Colors.green.shade100
-                        : Colors.orange.shade100,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: widget.exercise.userResult!['isCorrect'] == true
-                          ? Colors.green.shade300
-                          : Colors.orange.shade300,
-                    ),
-                  ),
-                  child: Text(
-                    widget.exercise.userResult!['isCorrect'] == true ? 'Completed ✓' : 'Previously Attempted',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: widget.exercise.userResult!['isCorrect'] == true
-                          ? Colors.green.shade700
-                          : Colors.orange.shade700,
-                    ),
-                  ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: _getDifficultyColor(widget.exercise.difficulty),
+                  borderRadius: BorderRadius.circular(12),
                 ),
+                child: Text(
+                  widget.exercise.difficulty,
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -903,13 +1145,15 @@ class _GrammarExerciseWidgetState extends State<GrammarExerciseWidget> {
             final isCorrect = i == correctIndex;
             final isSelected = i == selectedIndex;
             Color? color;
-            if (answered) {
+            if (showResults) {
               if (isSelected && isCorrect)
                 color = Colors.green.shade200;
               else if (isSelected && !isCorrect)
                 color = Colors.red.shade200;
               else if (isCorrect)
                 color = Colors.green.shade50;
+            } else if (isSelected) {
+              color = Colors.blue.shade100;
             }
             return ListTile(
               title: Text(widget.exercise.options[i]),
@@ -917,40 +1161,19 @@ class _GrammarExerciseWidgetState extends State<GrammarExerciseWidget> {
               leading: Radio<int>(
                 value: i,
                 groupValue: selectedIndex,
-                onChanged: answered
+                onChanged: showResults
                     ? null
-                    : (val) => setState(() => selectedIndex = val),
+                    : (val) => widget.onAnswerChanged(val),
               ),
-              onTap: answered ? null : () => setState(() => selectedIndex = i),
+              onTap: showResults ? null : () => widget.onAnswerChanged(i),
+              trailing: showResults && isCorrect
+                  ? Icon(Icons.check_circle, color: Colors.green.shade600)
+                  : showResults && isSelected && !isCorrect
+                      ? Icon(Icons.cancel, color: Colors.red.shade600)
+                      : null,
             );
           }),
-          if (!answered)
-            ElevatedButton(
-              onPressed: selectedIndex == null
-                  ? null
-                  : () {
-                      setState(() => answered = true);
-                      final isCorrect = selectedIndex == correctIndex;
-                      widget.onCompleted(isCorrect, selectedIndex!);
-                      if (isCorrect) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Correct! Well done!'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Incorrect. The correct answer is: ${widget.exercise.options[correctIndex]}'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    },
-              child: const Text('Submit'),
-            ),
-          if (answered)
+          if (showResults && selectedIndex != null)
             Padding(
               padding: const EdgeInsets.only(top: 8.0),
               child: Container(
@@ -990,5 +1213,18 @@ class _GrammarExerciseWidgetState extends State<GrammarExerciseWidget> {
         ],
       ),
     );
+  }
+
+  Color _getDifficultyColor(String difficulty) {
+    switch (difficulty.toLowerCase()) {
+      case 'easy':
+        return Colors.green.shade200;
+      case 'medium':
+        return Colors.orange.shade200;
+      case 'hard':
+        return Colors.red.shade200;
+      default:
+        return Colors.grey.shade200;
+    }
   }
 }
