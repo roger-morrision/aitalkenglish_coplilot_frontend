@@ -625,4 +625,171 @@ class ApiService {
       throw Exception('Failed to save user settings: ${response.body}');
     }
   }
+
+  // GRAMMAR STUDY API METHODS
+
+  // Get all grammar categories
+  static Future<List<dynamic>> getGrammarCategories() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/grammar/categories'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      // Handle both formats: {categories: [...]} or directly [...]
+      if (data is List) {
+        return data;
+      } else if (data is Map && data['categories'] != null) {
+        return data['categories'];
+      } else {
+        return [];
+      }
+    } else {
+      throw Exception('Failed to load grammar categories: ${response.body}');
+    }
+  }
+
+  // Get topics for a specific category
+  static Future<List<dynamic>> getGrammarTopics(String categoryId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/grammar/categories/$categoryId/topics'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      // Handle both formats: {topics: [...]} or directly [...]
+      if (data is List) {
+        return data;
+      } else if (data is Map && data['topics'] != null) {
+        return data['topics'];
+      } else {
+        return [];
+      }
+    } else {
+      throw Exception('Failed to load grammar topics: ${response.body}');
+    }
+  }
+
+  // Get exercises for a specific topic
+  static Future<List<dynamic>> getGrammarExercises(String topicId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/grammar/topics/$topicId/exercises'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      // Handle both formats: {exercises: [...]} or directly [...]
+      if (data is List) {
+        return data;
+      } else if (data is Map && data['exercises'] != null) {
+        return data['exercises'];
+      } else {
+        return [];
+      }
+    } else {
+      throw Exception('Failed to load grammar exercises: ${response.body}');
+    }
+  }
+
+  // Get complete grammar data structure (categories with topics and exercises)
+  static Future<List<dynamic>> getCompleteGrammarData() async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/grammar/complete'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      // Handle both formats: {categories: [...]} or directly [...]
+      if (data is List) {
+        return data;
+      } else if (data is Map && data['categories'] != null) {
+        return data['categories'];
+      } else {
+        return [];
+      }
+    } else {
+      throw Exception('Failed to load complete grammar data: ${response.body}');
+    }
+  }
+
+  // Save user grammar study result
+  static Future<Map<String, dynamic>> saveGrammarStudyResult({
+    required String userId,
+    required String categoryId,
+    required String topicId,
+    required String exerciseId,
+    required bool isCorrect,
+    int? selectedAnswer,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/user/$userId/grammar/exercise/$exerciseId/result'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'isCorrect': isCorrect,
+        'selectedAnswer': selectedAnswer,
+        'topicId': topicId,
+        'categoryId': categoryId,
+      }),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to save grammar study result: ${response.body}');
+    }
+  }
+
+  // Get exercises with user progress for a topic
+  static Future<List<dynamic>> getGrammarExercisesWithProgress(String userId, String topicId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/user/$userId/grammar/topic/$topicId/exercises-with-progress'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['exercises'] ?? [];
+    } else {
+      throw Exception('Failed to load exercises with progress: ${response.body}');
+    }
+  }
+
+  // Get user grammar study statistics
+  static Future<Map<String, dynamic>> getUserGrammarStats(String userId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/user/$userId/grammar/stats'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load grammar stats: ${response.body}');
+    }
+  }
+
+  // Get grammar topic explanation and examples
+  static Future<Map<String, dynamic>> getGrammarTopicExplanation(String topicId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/grammar/topics/$topicId/explanation'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Failed to load topic explanation: ${response.body}');
+    }
+  }
+
+  // Get user grammar study results
+  static Future<List<dynamic>> getUserGrammarStudyResults(String userId) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/user/$userId/grammar-study'),
+    ).timeout(ApiConfig.generalApiTimeout);
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['results'] ?? [];
+    } else {
+      throw Exception('Failed to load grammar study results: ${response.body}');
+    }
+  }
 }

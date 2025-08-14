@@ -174,12 +174,192 @@ db.serialize(() => {
     UNIQUE(user_id, achievement_id)
   )`);
 
+  // Grammar study data tables
+  db.run(`CREATE TABLE IF NOT EXISTS grammar_categories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    display_order INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS grammar_topics (
+    id TEXT PRIMARY KEY,
+    category_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    level TEXT NOT NULL,
+    display_order INTEGER DEFAULT 0,
+    explanation TEXT,
+    examples TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (category_id) REFERENCES grammar_categories (id)
+  )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS grammar_exercises (
+    id TEXT PRIMARY KEY,
+    topic_id TEXT NOT NULL,
+    question TEXT NOT NULL,
+    options TEXT NOT NULL,
+    correct_index INTEGER NOT NULL,
+    difficulty TEXT NOT NULL,
+    display_order INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (topic_id) REFERENCES grammar_topics (id)
+  )`);
+
+  // User progress tracking for grammar exercises
+  db.run(`CREATE TABLE IF NOT EXISTS user_grammar_progress (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    exercise_id TEXT NOT NULL,
+    topic_id TEXT NOT NULL,
+    category_id TEXT NOT NULL,
+    is_correct BOOLEAN NOT NULL,
+    selected_answer INTEGER NOT NULL,
+    attempts INTEGER DEFAULT 1,
+    first_attempt_correct BOOLEAN NOT NULL,
+    completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, exercise_id),
+    FOREIGN KEY (exercise_id) REFERENCES grammar_exercises (id),
+    FOREIGN KEY (topic_id) REFERENCES grammar_topics (id),
+    FOREIGN KEY (category_id) REFERENCES grammar_categories (id)
+  )`);
+
   // Initialize default AI model setting
   db.run(
     "INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES (?, ?)",
     ["selected_ai_model", "deepseek/deepseek-chat-v3-0324:free"]
   );
+
+  // Add new columns to grammar_topics table if they don't exist
+  db.all("PRAGMA table_info(grammar_topics)", (err, columns) => {
+    if (err) {
+      console.error("Error checking table structure:", err);
+      return;
+    }
+    
+    const hasExplanation = columns.some(col => col.name === 'explanation');
+    const hasExamples = columns.some(col => col.name === 'examples');
+    
+    if (!hasExplanation) {
+      db.run("ALTER TABLE grammar_topics ADD COLUMN explanation TEXT", (err) => {
+        if (err) console.error("Error adding explanation column:", err);
+        else console.log("Added explanation column to grammar_topics table");
+      });
+    }
+    
+    if (!hasExamples) {
+      db.run("ALTER TABLE grammar_topics ADD COLUMN examples TEXT", (err) => {
+        if (err) console.error("Error adding examples column:", err);
+        else console.log("Added examples column to grammar_topics table");
+      });
+    }
+  });
+
+  // Initialize grammar study data
+  initializeGrammarData();
 });
+
+// Grammar study data initialization
+function initializeGrammarData() {
+  // Check if data already exists
+  db.get("SELECT COUNT(*) as count FROM grammar_categories", (err, row) => {
+    if (err) {
+      console.error("Error checking grammar data:", err);
+      return;
+    }
+    
+    if (row.count > 0) {
+      console.log("Grammar data already exists, skipping initialization");
+      return;
+    }
+
+    console.log("Initializing grammar study data...");
+    
+    // Grammar categories data
+    const categories = [
+      { id: 'foundations', name: 'Grammar Foundations', order: 1 },
+      { id: 'elementary', name: 'Elementary Grammar', order: 2 },
+      { id: 'intermediate', name: 'Intermediate Grammar', order: 3 },
+      { id: 'upper_intermediate', name: 'Upper-Intermediate Grammar', order: 4 },
+      { id: 'advanced', name: 'Advanced Grammar', order: 5 },
+      { id: 'business', name: 'Business English Grammar', order: 6 },
+      { id: 'academic', name: 'Academic English Grammar', order: 7 }
+    ];
+
+    // Grammar topics data
+    const topics = [
+      // Foundations
+      { id: 'present_simple', category_id: 'foundations', title: 'Present Simple Tense', description: 'Learn the basic present tense for daily actions and facts.', level: 'easy', order: 1 },
+      { id: 'articles', category_id: 'foundations', title: 'Articles (a/an/the)', description: 'Master the use of definite and indefinite articles.', level: 'easy', order: 2 },
+      { id: 'plural_nouns', category_id: 'foundations', title: 'Plural Nouns', description: 'Learn regular and irregular plural forms.', level: 'easy', order: 3 },
+      { id: 'pronouns', category_id: 'foundations', title: 'Personal Pronouns', description: 'Subject and object pronouns in sentences.', level: 'easy', order: 4 },
+      
+      // Elementary
+      { id: 'past_simple', category_id: 'elementary', title: 'Past Simple Tense', description: 'Express completed actions in the past.', level: 'easy', order: 1 },
+      { id: 'future_simple', category_id: 'elementary', title: 'Future Simple (will)', description: 'Talk about future plans and predictions.', level: 'easy', order: 2 },
+      { id: 'prepositions', category_id: 'elementary', title: 'Common Prepositions', description: 'Learn prepositions of time, place, and direction.', level: 'easy', order: 3 },
+      
+      // Intermediate
+      { id: 'present_perfect', category_id: 'intermediate', title: 'Present Perfect Tense', description: 'Connect past actions to the present moment.', level: 'medium', order: 1 },
+      { id: 'past_continuous', category_id: 'intermediate', title: 'Past Continuous Tense', description: 'Describe ongoing actions in the past.', level: 'medium', order: 2 },
+      { id: 'comparatives_superlatives', category_id: 'intermediate', title: 'Comparatives & Superlatives', description: 'Compare people, places, and things.', level: 'medium', order: 3 },
+      { id: 'modal_verbs', category_id: 'intermediate', title: 'Modal Verbs', description: 'Express ability, possibility, and obligation.', level: 'medium', order: 4 },
+      
+      // Upper-Intermediate
+      { id: 'perfect_continuous', category_id: 'upper_intermediate', title: 'Perfect Continuous Tenses', description: 'Combine perfect and continuous aspects.', level: 'medium', order: 1 },
+      { id: 'relative_clauses', category_id: 'upper_intermediate', title: 'Relative Clauses', description: 'Join sentences with relative pronouns.', level: 'medium', order: 2 },
+      { id: 'gerunds_infinitives', category_id: 'upper_intermediate', title: 'Gerunds and Infinitives', description: 'Learn when to use -ing forms and to + verb.', level: 'medium', order: 3 },
+      
+      // Advanced
+      { id: 'conditionals', category_id: 'advanced', title: 'Conditional Sentences', description: 'Master all types of conditional structures.', level: 'hard', order: 1 },
+      { id: 'passive_voice', category_id: 'advanced', title: 'Passive Voice', description: 'Transform active sentences to passive structures.', level: 'hard', order: 2 },
+      { id: 'reported_speech', category_id: 'advanced', title: 'Reported Speech', description: 'Convert direct speech to indirect speech.', level: 'hard', order: 3 },
+      { id: 'subjunctive_mood', category_id: 'advanced', title: 'Subjunctive Mood', description: 'Express hypothetical and formal situations.', level: 'hard', order: 4 },
+      
+      // Business
+      { id: 'formal_language', category_id: 'business', title: 'Formal Language Structures', description: 'Professional communication patterns.', level: 'medium', order: 1 },
+      { id: 'email_structure', category_id: 'business', title: 'Email Grammar Patterns', description: 'Professional email communication.', level: 'medium', order: 2 },
+      
+      // Academic
+      { id: 'complex_sentences', category_id: 'academic', title: 'Complex Sentence Structures', description: 'Advanced academic writing patterns.', level: 'hard', order: 1 }
+    ];
+
+    // Insert categories
+    const insertCategory = db.prepare("INSERT OR IGNORE INTO grammar_categories (id, name, display_order) VALUES (?, ?, ?)");
+    categories.forEach(cat => {
+      insertCategory.run(cat.id, cat.name, cat.order);
+    });
+    insertCategory.finalize();
+
+    // Insert topics
+    const insertTopic = db.prepare("INSERT OR IGNORE INTO grammar_topics (id, category_id, title, description, level, display_order) VALUES (?, ?, ?, ?, ?, ?)");
+    topics.forEach(topic => {
+      insertTopic.run(topic.id, topic.category_id, topic.title, topic.description, topic.level, topic.order);
+    });
+    insertTopic.finalize();
+
+    // Insert sample exercises (you can expand this with all the exercises from grammar_data.dart)
+    const insertExercise = db.prepare("INSERT OR IGNORE INTO grammar_exercises (id, topic_id, question, options, correct_index, difficulty, display_order) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    
+    // Sample exercises for present simple
+    const sampleExercises = [
+      { id: 'ps1', topic_id: 'present_simple', question: 'She ____ to school every day.', options: JSON.stringify(['go', 'goes', 'going', 'gone']), correct_index: 1, difficulty: 'easy', order: 1 },
+      { id: 'ps2', topic_id: 'present_simple', question: 'I ____ coffee in the morning.', options: JSON.stringify(['drink', 'drinks', 'drank', 'drunk']), correct_index: 0, difficulty: 'easy', order: 2 },
+      { id: 'art1', topic_id: 'articles', question: 'I saw ____ elephant at the zoo.', options: JSON.stringify(['a', 'an', 'the', 'no article']), correct_index: 1, difficulty: 'easy', order: 1 },
+      { id: 'art2', topic_id: 'articles', question: 'Can you pass me ____ salt?', options: JSON.stringify(['a', 'an', 'the', 'no article']), correct_index: 2, difficulty: 'easy', order: 2 }
+    ];
+
+    sampleExercises.forEach(ex => {
+      insertExercise.run(ex.id, ex.topic_id, ex.question, ex.options, ex.correct_index, ex.difficulty, ex.order);
+    });
+    insertExercise.finalize();
+
+    console.log("Grammar study data initialized successfully");
+  });
+}
 
 // OpenAI setup
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
@@ -593,30 +773,6 @@ app.post("/user/:userId/achievements", (req, res) => {
 });
 
 // Track message interaction for progress
-// Grammar categories, topics, and exercises tables
-db.run(`CREATE TABLE IF NOT EXISTS grammar_categories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT
-  )`);
-
-db.run(`CREATE TABLE IF NOT EXISTS grammar_topics (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    category_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT,
-    FOREIGN KEY (category_id) REFERENCES grammar_categories(id) ON DELETE CASCADE
-  )`);
-
-db.run(`CREATE TABLE IF NOT EXISTS grammar_exercises (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    topic_id INTEGER NOT NULL,
-    question TEXT NOT NULL,
-    options TEXT NOT NULL,
-    answer TEXT NOT NULL,
-    explanation TEXT,
-    FOREIGN KEY (topic_id) REFERENCES grammar_topics(id) ON DELETE CASCADE
-  )`);
 app.post("/user/:userId/track-message", (req, res) => {
   const { userId } = req.params;
   const { message_content, message_type } = req.body;
@@ -625,9 +781,9 @@ app.post("/user/:userId/track-message", (req, res) => {
 
   // Get all grammar categories
   app.get("/grammar/categories", (req, res) => {
-    db.all("SELECT * FROM grammar_categories", [], (err, rows) => {
+    db.all("SELECT * FROM grammar_categories ORDER BY display_order", [], (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
+      res.json({ categories: rows });
     });
   });
 
@@ -636,12 +792,13 @@ app.post("/user/:userId/track-message", (req, res) => {
     const { name, description } = req.body;
     if (!name)
       return res.status(400).json({ error: "Category name is required" });
+    const id = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
     db.run(
-      "INSERT INTO grammar_categories (name, description) VALUES (?, ?)",
-      [name, description || null],
+      "INSERT INTO grammar_categories (id, name, description) VALUES (?, ?, ?)",
+      [id, name, description || null],
       function (err) {
         if (err) return res.status(500).json({ error: err.message });
-        res.json({ id: this.lastID });
+        res.json({ id: id });
       }
     );
   });
@@ -1696,27 +1853,18 @@ app.get("/conversations/:userId/search", (req, res) => {
   });
 });
 
-// --- Grammar Data Endpoints ---
-
-// Get all grammar categories
-app.get("/grammar/categories", (req, res) => {
-  db.all("SELECT * FROM grammar_categories", [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
 // Create a grammar category
 app.post("/grammar/categories", (req, res) => {
   const { name, description } = req.body;
   if (!name)
     return res.status(400).json({ error: "Category name is required" });
+  const id = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
   db.run(
-    "INSERT INTO grammar_categories (name, description) VALUES (?, ?)",
-    [name, description || null],
+    "INSERT INTO grammar_categories (id, name, description) VALUES (?, ?, ?)",
+    [id, name, description || null],
     function (err) {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID });
+      res.json({ id: id });
     }
   );
 });
@@ -1785,9 +1933,1269 @@ app.post("/grammar/topics/:topicId/exercises", (req, res) => {
   );
 });
 
+// ===========================================
+// GRAMMAR STUDY MODULE API ENDPOINTS
+// ===========================================
+
+// Get all grammar categories
+app.get("/grammar/categories", (req, res) => {
+  db.all(
+    "SELECT * FROM grammar_categories ORDER BY display_order",
+    (err, rows) => {
+      if (err) {
+        console.error("Error fetching grammar categories:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ categories: rows });
+    }
+  );
+});
+
+// Get topics for a specific category
+app.get("/grammar/categories/:categoryId/topics", (req, res) => {
+  const { categoryId } = req.params;
+  db.all(
+    "SELECT * FROM grammar_topics WHERE category_id = ? ORDER BY display_order",
+    [categoryId],
+    (err, rows) => {
+      if (err) {
+        console.error("Error fetching grammar topics:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ topics: rows });
+    }
+  );
+});
+
+// Get exercises for a specific topic
+app.get("/grammar/topics/:topicId/exercises", (req, res) => {
+  const { topicId } = req.params;
+  db.all(
+    "SELECT * FROM grammar_exercises WHERE topic_id = ? ORDER BY display_order",
+    [topicId],
+    (err, rows) => {
+      if (err) {
+        console.error("Error fetching grammar exercises:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Parse options JSON for each exercise
+      const exercises = rows.map(row => ({
+        ...row,
+        options: JSON.parse(row.options)
+      }));
+      
+      res.json({ exercises });
+    }
+  );
+});
+
+// Get complete grammar data structure (categories with topics and exercises)
+app.get("/grammar/complete", (req, res) => {
+  db.all(
+    "SELECT * FROM grammar_categories ORDER BY display_order",
+    (err, categories) => {
+      if (err) {
+        console.error("Error fetching grammar categories:", err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      let completed = 0;
+      const result = categories.map(category => ({
+        ...category,
+        topics: []
+      }));
+
+      if (categories.length === 0) {
+        return res.json({ categories: result });
+      }
+
+      categories.forEach((category, catIndex) => {
+        db.all(
+          "SELECT * FROM grammar_topics WHERE category_id = ? ORDER BY display_order",
+          [category.id],
+          (err, topics) => {
+            if (err) {
+              console.error("Error fetching topics for category:", category.id, err);
+              completed++;
+              if (completed === categories.length) {
+                res.json({ categories: result });
+              }
+              return;
+            }
+
+            let topicsCompleted = 0;
+            result[catIndex].topics = topics.map(topic => ({
+              ...topic,
+              exercises: []
+            }));
+
+            if (topics.length === 0) {
+              completed++;
+              if (completed === categories.length) {
+                res.json({ categories: result });
+              }
+              return;
+            }
+
+            topics.forEach((topic, topicIndex) => {
+              db.all(
+                "SELECT * FROM grammar_exercises WHERE topic_id = ? ORDER BY display_order",
+                [topic.id],
+                (err, exercises) => {
+                  if (err) {
+                    console.error("Error fetching exercises for topic:", topic.id, err);
+                  } else {
+                    // Parse options JSON for each exercise
+                    result[catIndex].topics[topicIndex].exercises = exercises.map(ex => ({
+                      ...ex,
+                      options: JSON.parse(ex.options)
+                    }));
+                  }
+
+                  topicsCompleted++;
+                  if (topicsCompleted === topics.length) {
+                    completed++;
+                    if (completed === categories.length) {
+                      res.json({ categories: result });
+                    }
+                  }
+                }
+              );
+            });
+          }
+        );
+      });
+    }
+  );
+});
+
+// Admin endpoints for managing grammar data (for future admin portal)
+
+// Add new category
+app.post("/grammar/categories", (req, res) => {
+  const { id, name, display_order = 0 } = req.body;
+  
+  if (!id || !name) {
+    return res.status(400).json({ error: "Category id and name are required" });
+  }
+
+  db.run(
+    "INSERT INTO grammar_categories (id, name, display_order) VALUES (?, ?, ?)",
+    [id, name, display_order],
+    function (err) {
+      if (err) {
+        console.error("Error adding grammar category:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ success: true, id: id, message: "Category added successfully" });
+    }
+  );
+});
+
+// Add new topic
+app.post("/grammar/topics", (req, res) => {
+  const { id, category_id, title, description, level, display_order = 0 } = req.body;
+  
+  if (!id || !category_id || !title || !description || !level) {
+    return res.status(400).json({ error: "All topic fields are required" });
+  }
+
+  db.run(
+    "INSERT INTO grammar_topics (id, category_id, title, description, level, display_order) VALUES (?, ?, ?, ?, ?, ?)",
+    [id, category_id, title, description, level, display_order],
+    function (err) {
+      if (err) {
+        console.error("Error adding grammar topic:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ success: true, id: id, message: "Topic added successfully" });
+    }
+  );
+});
+
+// Add new exercise
+app.post("/grammar/exercises", (req, res) => {
+  const { id, topic_id, question, options, correct_index, difficulty, display_order = 0 } = req.body;
+  
+  if (!id || !topic_id || !question || !options || correct_index === undefined || !difficulty) {
+    return res.status(400).json({ error: "All exercise fields are required" });
+  }
+
+  const optionsJson = Array.isArray(options) ? JSON.stringify(options) : options;
+
+  db.run(
+    "INSERT INTO grammar_exercises (id, topic_id, question, options, correct_index, difficulty, display_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [id, topic_id, question, optionsJson, correct_index, difficulty, display_order],
+    function (err) {
+      if (err) {
+        console.error("Error adding grammar exercise:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ success: true, id: id, message: "Exercise added successfully" });
+    }
+  );
+});
+
+// Update existing category
+app.put("/grammar/categories/:id", (req, res) => {
+  const { id } = req.params;
+  const { name, display_order } = req.body;
+  
+  db.run(
+    "UPDATE grammar_categories SET name = ?, display_order = ? WHERE id = ?",
+    [name, display_order, id],
+    function (err) {
+      if (err) {
+        console.error("Error updating grammar category:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ success: true, updated: this.changes, message: "Category updated successfully" });
+    }
+  );
+});
+
+// Delete category (and all related topics and exercises)
+app.delete("/grammar/categories/:id", (req, res) => {
+  const { id } = req.params;
+  
+  db.serialize(() => {
+    db.run("DELETE FROM grammar_exercises WHERE topic_id IN (SELECT id FROM grammar_topics WHERE category_id = ?)", [id]);
+    db.run("DELETE FROM grammar_topics WHERE category_id = ?", [id]);
+    db.run("DELETE FROM grammar_categories WHERE id = ?", [id], function (err) {
+      if (err) {
+        console.error("Error deleting grammar category:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ success: true, deleted: this.changes, message: "Category and related data deleted successfully" });
+    });
+  });
+});
+
+// ===========================================
+// USER PROGRESS TRACKING API ENDPOINTS
+// ===========================================
+
+// Save user's exercise result
+app.post("/user/:userId/grammar/exercise/:exerciseId/result", (req, res) => {
+  const { userId, exerciseId } = req.params;
+  const { isCorrect, selectedAnswer, topicId, categoryId } = req.body;
+
+  if (typeof isCorrect !== 'boolean' || selectedAnswer === undefined) {
+    return res.status(400).json({ 
+      error: "isCorrect (boolean) and selectedAnswer (number) are required" 
+    });
+  }
+
+  // First check if user has already completed this exercise
+  db.get(
+    "SELECT * FROM user_grammar_progress WHERE user_id = ? AND exercise_id = ?",
+    [userId, exerciseId],
+    (err, existingProgress) => {
+      if (err) {
+        console.error("Error checking existing progress:", err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      if (existingProgress) {
+        // Update existing progress
+        db.run(
+          `UPDATE user_grammar_progress 
+           SET is_correct = ?, selected_answer = ?, attempts = attempts + 1, 
+               updated_at = CURRENT_TIMESTAMP
+           WHERE user_id = ? AND exercise_id = ?`,
+          [isCorrect, selectedAnswer, userId, exerciseId],
+          function (err) {
+            if (err) {
+              console.error("Error updating progress:", err);
+              return res.status(500).json({ error: err.message });
+            }
+            res.json({ 
+              success: true, 
+              message: "Progress updated",
+              isFirstAttempt: false,
+              previouslyCorrect: existingProgress.is_correct === 1
+            });
+          }
+        );
+      } else {
+        // Insert new progress record
+        db.run(
+          `INSERT INTO user_grammar_progress 
+           (user_id, exercise_id, topic_id, category_id, is_correct, selected_answer, first_attempt_correct)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [userId, exerciseId, topicId, categoryId, isCorrect, selectedAnswer, isCorrect],
+          function (err) {
+            if (err) {
+              console.error("Error saving progress:", err);
+              return res.status(500).json({ error: err.message });
+            }
+            res.json({ 
+              success: true, 
+              message: "Progress saved",
+              isFirstAttempt: true,
+              id: this.lastID
+            });
+          }
+        );
+      }
+    }
+  );
+});
+
+// Get user's progress for a specific topic
+app.get("/user/:userId/grammar/topic/:topicId/progress", (req, res) => {
+  const { userId, topicId } = req.params;
+
+  db.all(
+    `SELECT ugp.*, ge.question, ge.options, ge.correct_index 
+     FROM user_grammar_progress ugp
+     JOIN grammar_exercises ge ON ugp.exercise_id = ge.id
+     WHERE ugp.user_id = ? AND ugp.topic_id = ?
+     ORDER BY ge.display_order`,
+    [userId, topicId],
+    (err, rows) => {
+      if (err) {
+        console.error("Error fetching topic progress:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ progress: rows });
+    }
+  );
+});
+
+// Get user's progress for a specific category
+app.get("/user/:userId/grammar/category/:categoryId/progress", (req, res) => {
+  const { userId, categoryId } = req.params;
+
+  db.all(
+    `SELECT ugp.*, ge.question, gt.title as topic_title
+     FROM user_grammar_progress ugp
+     JOIN grammar_exercises ge ON ugp.exercise_id = ge.id
+     JOIN grammar_topics gt ON ugp.topic_id = gt.id
+     WHERE ugp.user_id = ? AND ugp.category_id = ?
+     ORDER BY gt.display_order, ge.display_order`,
+    [userId, categoryId],
+    (err, rows) => {
+      if (err) {
+        console.error("Error fetching category progress:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      res.json({ progress: rows });
+    }
+  );
+});
+
+// Get user's overall grammar study statistics
+app.get("/user/:userId/grammar/stats", (req, res) => {
+  const { userId } = req.params;
+
+  // Get comprehensive stats
+  db.all(
+    `SELECT 
+       COUNT(*) as total_attempted,
+       SUM(CASE WHEN is_correct = 1 THEN 1 ELSE 0 END) as total_correct,
+       SUM(CASE WHEN first_attempt_correct = 1 THEN 1 ELSE 0 END) as first_attempt_correct,
+       COUNT(DISTINCT category_id) as categories_touched,
+       COUNT(DISTINCT topic_id) as topics_touched,
+       AVG(attempts) as avg_attempts
+     FROM user_grammar_progress 
+     WHERE user_id = ?`,
+    [userId],
+    (err, stats) => {
+      if (err) {
+        console.error("Error fetching user stats:", err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      // Get category-wise breakdown
+      db.all(
+        `SELECT 
+           ugp.category_id,
+           gc.name as category_name,
+           COUNT(*) as exercises_attempted,
+           SUM(CASE WHEN ugp.is_correct = 1 THEN 1 ELSE 0 END) as exercises_correct,
+           COUNT(DISTINCT ugp.topic_id) as topics_attempted
+         FROM user_grammar_progress ugp
+         JOIN grammar_categories gc ON ugp.category_id = gc.id
+         WHERE ugp.user_id = ?
+         GROUP BY ugp.category_id, gc.name
+         ORDER BY gc.display_order`,
+        [userId],
+        (err, categoryStats) => {
+          if (err) {
+            console.error("Error fetching category stats:", err);
+            return res.status(500).json({ error: err.message });
+          }
+
+          res.json({
+            overall: stats[0] || {
+              total_attempted: 0,
+              total_correct: 0,
+              first_attempt_correct: 0,
+              categories_touched: 0,
+              topics_touched: 0,
+              avg_attempts: 0
+            },
+            byCategory: categoryStats
+          });
+        }
+      );
+    }
+  );
+});
+
+// Get exercises with user's previous results for a topic
+app.get("/user/:userId/grammar/topic/:topicId/exercises-with-progress", (req, res) => {
+  const { userId, topicId } = req.params;
+
+  db.all(
+    `SELECT 
+       ge.*,
+       ugp.is_correct as user_was_correct,
+       ugp.selected_answer as user_selected_answer,
+       ugp.attempts as user_attempts,
+       ugp.first_attempt_correct,
+       ugp.completed_at as user_completed_at
+     FROM grammar_exercises ge
+     LEFT JOIN user_grammar_progress ugp ON ge.id = ugp.exercise_id AND ugp.user_id = ?
+     WHERE ge.topic_id = ?
+     ORDER BY ge.display_order`,
+    [userId, topicId],
+    (err, exercises) => {
+      if (err) {
+        console.error("Error fetching exercises with progress:", err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      // Parse options JSON and add progress info
+      const exercisesWithProgress = exercises.map(exercise => ({
+        ...exercise,
+        options: JSON.parse(exercise.options),
+        hasUserCompleted: exercise.user_was_correct !== null,
+        userResult: exercise.user_was_correct !== null ? {
+          isCorrect: exercise.user_was_correct === 1,
+          selectedAnswer: exercise.user_selected_answer,
+          attempts: exercise.user_attempts,
+          firstAttemptCorrect: exercise.first_attempt_correct === 1,
+          completedAt: exercise.user_completed_at
+        } : null
+      }));
+
+      res.json({ exercises: exercisesWithProgress });
+    }
+  );
+});
+
+// ===========================================
+// GRAMMAR EXPLANATIONS API ENDPOINTS
+// ===========================================
+
+// Update explanations and examples for all topics
+app.post("/admin/update-grammar-explanations", (req, res) => {
+  console.log("Updating grammar explanations for all topics...");
+  
+  const explanations = {
+    'present_simple': {
+      'explanation': 'The present simple tense is used to express general facts, habits, and routines. It describes actions that happen regularly or states that are generally true. Form: Subject + base verb (+ s for third person singular).',
+      'examples': [
+        'I work in an office. (general fact)',
+        'She plays tennis every weekend. (routine)',
+        'The sun rises in the east. (general truth)',
+        'They live in London. (current state)',
+      ]
+    },
+    'present_continuous': {
+      'explanation': 'The present continuous tense is used to describe actions happening right now, temporary situations, or planned future actions. Form: Subject + am/is/are + verb-ing.',
+      'examples': [
+        'I am writing an email right now. (happening now)',
+        'She is working late this week. (temporary)',
+        'We are meeting tomorrow at 3 PM. (planned future)',
+        'They are watching a movie. (current action)',
+      ]
+    },
+    'past_simple': {
+      'explanation': 'The past simple tense is used to describe completed actions in the past, past habits, or a series of completed actions. Form: Subject + past form of verb (regular: verb + ed, irregular: specific forms).',
+      'examples': [
+        'I visited Paris last year. (completed action)',
+        'She worked at that company for five years. (past habit)',
+        'He ate breakfast, took a shower, and left for work. (series of actions)',
+        'They were happy when they heard the news. (past state)',
+      ]
+    },
+    'articles': {
+      'explanation': 'Articles (a, an, the) are used before nouns to specify whether we are talking about something specific or general. "A/an" are indefinite articles for non-specific items. "The" is the definite article for specific items.',
+      'examples': [
+        'I saw a cat in the garden. (any cat)',
+        'Can you pass me the salt? (specific salt)',
+        'She is an engineer. (profession)',
+        'The book you lent me was great. (specific book)',
+      ]
+    },
+    'prepositions_time': {
+      'explanation': 'Prepositions of time (in, on, at) show when something happens. Use "at" for specific times, "on" for days and dates, "in" for months, years, and longer periods.',
+      'examples': [
+        'I wake up at 7 AM. (specific time)',
+        'The meeting is on Monday. (day)',
+        'She was born in 1995. (year)',
+        'We go on vacation in summer. (season)',
+      ]
+    },
+    'prepositions_place': {
+      'explanation': 'Prepositions of place (in, on, at, under, over, etc.) show where something is located. Use "at" for specific points, "on" for surfaces, "in" for enclosed spaces.',
+      'examples': [
+        'The book is on the table. (surface)',
+        'She lives in New York. (city/enclosed space)',
+        'Meet me at the station. (specific point)',
+        'The cat is under the chair. (position)',
+      ]
+    },
+    'common_prepositions': {
+      'explanation': 'Common prepositions include words like by, with, for, from, about, etc. Each has specific uses and meanings. They often depend on the verb or adjective they follow.',
+      'examples': [
+        'I go to work by bus. (method)',
+        'She wrote the letter with a pen. (instrument)',
+        'This gift is for you. (recipient)',
+        'Tell me about your trip. (topic)',
+      ]
+    },
+    'modal_can_could': {
+      'explanation': 'Can/could express ability, permission, or possibility. "Can" is for present ability/permission, "could" for past ability or polite requests.',
+      'examples': [
+        'I can swim. (present ability)',
+        'Could you help me? (polite request)',
+        'When I was young, I could run fast. (past ability)',
+        'You can go now. (permission)',
+      ]
+    },
+    'modal_will_would': {
+      'explanation': 'Will/would express future actions, willingness, or habits. "Will" for future and willingness, "would" for polite requests and past habits.',
+      'examples': [
+        'I will call you tomorrow. (future)',
+        'Would you like some coffee? (polite offer)',
+        'When I was a child, I would play outside. (past habit)',
+        'He will help you if you ask. (willingness)',
+      ]
+    },
+    'modal_should_must': {
+      'explanation': 'Should/must express obligation and advice. "Should" gives advice or recommendations, "must" expresses strong obligation or necessity.',
+      'examples': [
+        'You should see a doctor. (advice)',
+        'Students must wear uniforms. (strong obligation)',
+        'I must finish this today. (necessity)',
+        'You should try this restaurant. (recommendation)',
+      ]
+    },
+    'countable_uncountable': {
+      'explanation': 'Countable nouns can be counted (book/books), uncountable nouns cannot (water, information). Use different quantifiers: much/many, little/few, some/any.',
+      'examples': [
+        'I have many books. (countable)',
+        'There is much water in the glass. (uncountable)',
+        'Few people came to the party. (countable)',
+        'I have little time. (uncountable)',
+      ]
+    },
+    'quantifiers': {
+      'explanation': 'Quantifiers (some, any, much, many, few, little) indicate quantity. Choice depends on whether the noun is countable/uncountable and if the sentence is positive/negative/question.',
+      'examples': [
+        'I have some apples. (positive, countable)',
+        'Is there any milk? (question, uncountable)',
+        'She doesn\'t have many friends. (negative, countable)',
+        'There isn\'t much traffic today. (negative, uncountable)',
+      ]
+    },
+    'comparatives': {
+      'explanation': 'Comparatives compare two things. For short adjectives: add -er (tall → taller). For long adjectives: use "more" (beautiful → more beautiful). Irregular: good → better.',
+      'examples': [
+        'She is taller than her sister. (short adjective)',
+        'This movie is more interesting than the last one. (long adjective)',
+        'Today is better than yesterday. (irregular)',
+        'My car is faster than yours. (short adjective)',
+      ]
+    },
+    'superlatives': {
+      'explanation': 'Superlatives describe the extreme degree among three or more things. For short adjectives: add -est (tall → tallest). For long adjectives: use "most" (beautiful → most beautiful).',
+      'examples': [
+        'She is the tallest in the class. (short adjective)',
+        'This is the most beautiful place I\'ve seen. (long adjective)',
+        'He is the best player on the team. (irregular)',
+        'That was the worst movie ever. (irregular)',
+      ]
+    },
+    'conditionals_zero_first': {
+      'explanation': 'Zero conditional (if + present, present) expresses general truths. First conditional (if + present, will + base verb) expresses real future possibilities.',
+      'examples': [
+        'If you heat water to 100°C, it boils. (zero - general truth)',
+        'If it rains tomorrow, we will stay home. (first - real possibility)',
+        'If you study hard, you will pass the exam. (first)',
+        'If I press this button, the light turns on. (zero)',
+      ]
+    },
+    'conditionals_second_third': {
+      'explanation': 'Second conditional (if + past simple, would + base verb) expresses unreal present situations. Third conditional (if + past perfect, would have + past participle) expresses unreal past situations.',
+      'examples': [
+        'If I were rich, I would travel the world. (second - unreal present)',
+        'If I had studied harder, I would have passed. (third - unreal past)',
+        'If she spoke French, she would get the job. (second)',
+        'If we had left earlier, we would have caught the train. (third)',
+      ]
+    },
+    'passive_voice': {
+      'explanation': 'Passive voice emphasizes the action or result rather than who performs it. Form: Object + be + past participle (+ by + agent). Use when the doer is unknown, unimportant, or obvious.',
+      'examples': [
+        'The book was written by Shakespeare. (emphasis on book)',
+        'The window was broken. (doer unknown)',
+        'English is spoken worldwide. (general statement)',
+        'The project will be completed next month. (emphasis on completion)',
+      ]
+    },
+    'question_formation': {
+      'explanation': 'Questions are formed differently based on type: Yes/No questions (auxiliary + subject + main verb), Wh-questions (question word + auxiliary + subject + main verb), or question tags.',
+      'examples': [
+        'Do you like coffee? (yes/no question)',
+        'Where do you live? (wh-question)',
+        'You are coming, aren\'t you? (question tag)',
+        'What time does the movie start? (wh-question)',
+      ]
+    },
+    'reported_speech': {
+      'explanation': 'Reported speech tells what someone said without using their exact words. Change pronouns, time expressions, and often tense. Use reporting verbs like "said," "told," "asked."',
+      'examples': [
+        'Direct: "I am tired." → Reported: She said she was tired.',
+        'Direct: "Where do you live?" → Reported: He asked where I lived.',
+        'Direct: "I will call you tomorrow." → Reported: She said she would call me the next day.',
+        'Direct: "Don\'t go there!" → Reported: He told me not to go there.',
+      ]
+    },
+    'phrasal_verbs': {
+      'explanation': 'Phrasal verbs combine a verb with a preposition or adverb to create new meanings. Some are separable (turn off the light/turn the light off), others are inseparable (look after).',
+      'examples': [
+        'Please turn off the lights. (separable)',
+        'I need to look after my sister. (inseparable)',
+        'The meeting was put off until next week. (postponed)',
+        'She came across an old photo. (found by chance)',
+      ]
+    },
+    'relative_clauses': {
+      'explanation': 'Relative clauses give additional information about nouns. Use relative pronouns: who (people), which (things), that (people/things), where (places), when (time). Defining clauses are essential; non-defining clauses add extra information.',
+      'examples': [
+        'The man who lives next door is a doctor. (defining)',
+        'My car, which is red, is parked outside. (non-defining)',
+        'The book that you recommended was great. (defining)',
+        'London, where I was born, is a big city. (non-defining)',
+      ]
+    }
+  };
+
+  let topicsUpdated = 0;
+  const topicIds = Object.keys(explanations);
+  
+  topicIds.forEach((topicId, index) => {
+    const data = explanations[topicId];
+    db.run(
+      `UPDATE grammar_topics 
+       SET explanation = ?, examples = ? 
+       WHERE id = ?`,
+      [data.explanation, JSON.stringify(data.examples), topicId],
+      function (err) {
+        if (err) {
+          console.error(`Error updating topic ${topicId}:`, err);
+        } else {
+          topicsUpdated++;
+          console.log(`Updated topic ${topicId} with explanation and examples`);
+        }
+        
+        // Send response when all topics are processed
+        if (index === topicIds.length - 1) {
+          res.json({ 
+            success: true, 
+            message: `Updated explanations for ${topicsUpdated} topics`,
+            topicsUpdated 
+          });
+        }
+      }
+    );
+  });
+});
+
+// Get grammar topic with explanation and examples
+app.get("/grammar/topics/:topicId/explanation", (req, res) => {
+  const { topicId } = req.params;
+  
+  db.get(
+    `SELECT id, title, description, level, explanation, examples
+     FROM grammar_topics 
+     WHERE id = ?`,
+    [topicId],
+    (err, topic) => {
+      if (err) {
+        console.error("Error fetching topic explanation:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (!topic) {
+        return res.status(404).json({ error: "Topic not found" });
+      }
+      
+      // Parse examples JSON
+      let examples = [];
+      if (topic.examples) {
+        try {
+          examples = JSON.parse(topic.examples);
+        } catch (e) {
+          console.error("Error parsing examples JSON:", e);
+          examples = [];
+        }
+      }
+      
+      res.json({
+        ...topic,
+        examples: examples
+      });
+    }
+  );
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+});
+
+// Endpoint to generate exercises for all topics (development use)
+app.post("/admin/generate-exercises", (req, res) => {
+  console.log("Generating exercises for all topics...");
+  
+  // Get all topics first
+  db.all("SELECT * FROM grammar_topics ORDER BY category_id, display_order", (err, topics) => {
+    if (err) {
+      console.error("Error fetching topics:", err);
+      return res.status(500).json({ error: err.message });
+    }
+    
+    console.log(`Found ${topics.length} topics`);
+    let exercisesInserted = 0;
+    let topicsProcessed = 0;
+    
+    const exercises = {
+      // Grammar Foundations
+      "present_simple": [
+        {
+          question: "I ___ to work every day.",
+          options: ["go", "goes", "going", "went"],
+          correctIndex: 0,
+          difficulty: "easy"
+        },
+        {
+          question: "She ___ coffee in the morning.",
+          options: ["drink", "drinks", "drinking", "drank"],
+          correctIndex: 1,
+          difficulty: "easy"
+        },
+        {
+          question: "They ___ English at school.",
+          options: ["studies", "study", "studying", "studied"],
+          correctIndex: 1,
+          difficulty: "easy"
+        }
+      ],
+      
+      "articles": [
+        {
+          question: "I need ___ umbrella.",
+          options: ["a", "an", "the", "no article"],
+          correctIndex: 1,
+          difficulty: "easy"
+        },
+        {
+          question: "___ sun is shining today.",
+          options: ["A", "An", "The", "No article"],
+          correctIndex: 2,
+          difficulty: "easy"
+        },
+        {
+          question: "Can you pass me ___ salt?",
+          options: ["a", "an", "the", "no article"],
+          correctIndex: 2,
+          difficulty: "easy"
+        }
+      ],
+      
+      "plural_nouns": [
+        {
+          question: "The plural of 'child' is ___.",
+          options: ["childs", "children", "childes", "child"],
+          correctIndex: 1,
+          difficulty: "easy"
+        },
+        {
+          question: "Three ___ are playing in the park.",
+          options: ["woman", "womans", "women", "womens"],
+          correctIndex: 2,
+          difficulty: "easy"
+        },
+        {
+          question: "I bought two ___.",
+          options: ["boxs", "boxes", "boxies", "box"],
+          correctIndex: 1,
+          difficulty: "easy"
+        }
+      ],
+      
+      "pronouns": [
+        {
+          question: "___ am a student.",
+          options: ["I", "Me", "My", "Mine"],
+          correctIndex: 0,
+          difficulty: "easy"
+        },
+        {
+          question: "Can you help ___?",
+          options: ["I", "me", "my", "mine"],
+          correctIndex: 1,
+          difficulty: "easy"
+        },
+        {
+          question: "This book is ___.",
+          options: ["I", "me", "my", "mine"],
+          correctIndex: 3,
+          difficulty: "easy"
+        }
+      ],
+      
+      // Elementary Grammar
+      "past_simple": [
+        {
+          question: "I ___ to the store yesterday.",
+          options: ["go", "goes", "went", "going"],
+          correctIndex: 2,
+          difficulty: "easy"
+        },
+        {
+          question: "She ___ a movie last night.",
+          options: ["watch", "watches", "watched", "watching"],
+          correctIndex: 2,
+          difficulty: "easy"
+        },
+        {
+          question: "They ___ home late.",
+          options: ["come", "comes", "came", "coming"],
+          correctIndex: 2,
+          difficulty: "easy"
+        }
+      ],
+      
+      "future_simple": [
+        {
+          question: "I ___ see you tomorrow.",
+          options: ["will", "would", "shall", "should"],
+          correctIndex: 0,
+          difficulty: "easy"
+        },
+        {
+          question: "She ___ call you later.",
+          options: ["will", "would", "shall", "should"],
+          correctIndex: 0,
+          difficulty: "easy"
+        },
+        {
+          question: "We ___ travel next month.",
+          options: ["will", "would", "shall", "should"],
+          correctIndex: 0,
+          difficulty: "easy"
+        }
+      ],
+      
+      "prepositions": [
+        {
+          question: "I will see you ___ Monday.",
+          options: ["in", "on", "at", "by"],
+          correctIndex: 1,
+          difficulty: "easy"
+        },
+        {
+          question: "The meeting is ___ 3 o'clock.",
+          options: ["in", "on", "at", "by"],
+          correctIndex: 2,
+          difficulty: "easy"
+        },
+        {
+          question: "The book is ___ the table.",
+          options: ["in", "on", "at", "under"],
+          correctIndex: 1,
+          difficulty: "easy"
+        },
+        {
+          question: "I live ___ New York.",
+          options: ["in", "on", "at", "by"],
+          correctIndex: 0,
+          difficulty: "easy"
+        }
+      ],
+      
+      // Intermediate Grammar
+      "present_perfect": [
+        {
+          question: "I ___ finished my homework.",
+          options: ["have", "has", "had", "having"],
+          correctIndex: 0,
+          difficulty: "medium"
+        },
+        {
+          question: "She ___ visited Paris before.",
+          options: ["have", "has", "had", "having"],
+          correctIndex: 1,
+          difficulty: "medium"
+        },
+        {
+          question: "They ___ never seen this movie.",
+          options: ["have", "has", "had", "having"],
+          correctIndex: 0,
+          difficulty: "medium"
+        }
+      ],
+      
+      "past_continuous": [
+        {
+          question: "I ___ reading when you called.",
+          options: ["am", "was", "were", "is"],
+          correctIndex: 1,
+          difficulty: "medium"
+        },
+        {
+          question: "They ___ playing football at 3 PM.",
+          options: ["was", "were", "are", "is"],
+          correctIndex: 1,
+          difficulty: "medium"
+        },
+        {
+          question: "She ___ cooking dinner when I arrived.",
+          options: ["was", "were", "is", "are"],
+          correctIndex: 0,
+          difficulty: "medium"
+        }
+      ],
+      
+      "comparatives_superlatives": [
+        {
+          question: "This book is ___ than that one.",
+          options: ["good", "better", "best", "more good"],
+          correctIndex: 1,
+          difficulty: "medium"
+        },
+        {
+          question: "She is the ___ student in the class.",
+          options: ["smart", "smarter", "smartest", "most smart"],
+          correctIndex: 2,
+          difficulty: "medium"
+        },
+        {
+          question: "Today is ___ than yesterday.",
+          options: ["hot", "hotter", "hottest", "more hot"],
+          correctIndex: 1,
+          difficulty: "medium"
+        }
+      ],
+      
+      "modal_verbs": [
+        {
+          question: "You ___ drive carefully.",
+          options: ["must", "can", "may", "might"],
+          correctIndex: 0,
+          difficulty: "medium"
+        },
+        {
+          question: "I ___ swim when I was five.",
+          options: ["can", "could", "may", "might"],
+          correctIndex: 1,
+          difficulty: "medium"
+        },
+        {
+          question: "___ I borrow your pen?",
+          options: ["Must", "Can", "May", "Should"],
+          correctIndex: 2,
+          difficulty: "medium"
+        }
+      ],
+      
+      // Upper-Intermediate Grammar
+      "perfect_continuous": [
+        {
+          question: "I ___ working here for five years.",
+          options: ["have been", "has been", "had been", "will have been"],
+          correctIndex: 0,
+          difficulty: "hard"
+        },
+        {
+          question: "She ___ studying English since 2020.",
+          options: ["have been", "has been", "had been", "will have been"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "They ___ waiting for two hours when the bus arrived.",
+          options: ["have been", "has been", "had been", "will have been"],
+          correctIndex: 2,
+          difficulty: "hard"
+        }
+      ],
+      
+      "relative_clauses": [
+        {
+          question: "The book ___ I read was interesting.",
+          options: ["who", "which", "what", "where"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "The person ___ called you is my friend.",
+          options: ["who", "which", "what", "where"],
+          correctIndex: 0,
+          difficulty: "hard"
+        },
+        {
+          question: "The place ___ we met is a coffee shop.",
+          options: ["who", "which", "what", "where"],
+          correctIndex: 3,
+          difficulty: "hard"
+        }
+      ],
+      
+      "gerunds_infinitives": [
+        {
+          question: "I enjoy ___ books.",
+          options: ["read", "to read", "reading", "reads"],
+          correctIndex: 2,
+          difficulty: "hard"
+        },
+        {
+          question: "I want ___ English.",
+          options: ["learn", "to learn", "learning", "learns"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "She decided ___ home.",
+          options: ["go", "to go", "going", "goes"],
+          correctIndex: 1,
+          difficulty: "hard"
+        }
+      ],
+      
+      // Advanced Grammar
+      "conditionals": [
+        {
+          question: "If it rains, I ___ stay home.",
+          options: ["will", "would", "shall", "should"],
+          correctIndex: 0,
+          difficulty: "hard"
+        },
+        {
+          question: "If I were rich, I ___ travel the world.",
+          options: ["will", "would", "shall", "should"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "If you heat water to 100°C, it ___.",
+          options: ["boil", "boils", "will boil", "would boil"],
+          correctIndex: 1,
+          difficulty: "hard"
+        }
+      ],
+      
+      "passive_voice": [
+        {
+          question: "The cake ___ by Mary.",
+          options: ["made", "was made", "is making", "makes"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "English ___ all over the world.",
+          options: ["speaks", "is spoken", "speaking", "spoke"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "The letter ___ yesterday.",
+          options: ["sent", "was sent", "sending", "sends"],
+          correctIndex: 1,
+          difficulty: "hard"
+        }
+      ],
+      
+      "reported_speech": [
+        {
+          question: "He said he ___ come tomorrow.",
+          options: ["will", "would", "shall", "should"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "She told me she ___ tired.",
+          options: ["is", "was", "were", "are"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "They said they ___ the movie.",
+          options: ["like", "liked", "likes", "liking"],
+          correctIndex: 1,
+          difficulty: "hard"
+        }
+      ],
+      
+      "subjunctive_mood": [
+        {
+          question: "I suggest that he ___ early.",
+          options: ["leave", "leaves", "left", "leaving"],
+          correctIndex: 0,
+          difficulty: "hard"
+        },
+        {
+          question: "It's important that she ___ on time.",
+          options: ["is", "be", "was", "being"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "I wish I ___ speak French.",
+          options: ["can", "could", "may", "might"],
+          correctIndex: 1,
+          difficulty: "hard"
+        }
+      ],
+      
+      // Business English Grammar
+      "formal_language": [
+        {
+          question: "We would like to ___ our sincere apologies.",
+          options: ["offer", "give", "make", "present"],
+          correctIndex: 0,
+          difficulty: "medium"
+        },
+        {
+          question: "Please find ___ the requested documents.",
+          options: ["attach", "attached", "attachment", "attaching"],
+          correctIndex: 1,
+          difficulty: "medium"
+        },
+        {
+          question: "We ___ to inform you of the policy change.",
+          options: ["write", "are writing", "wrote", "have written"],
+          correctIndex: 1,
+          difficulty: "medium"
+        }
+      ],
+      
+      "email_structure": [
+        {
+          question: "Dear ___ Smith, (formal business email)",
+          options: ["Mr", "Mr.", "Mister", "mister"],
+          correctIndex: 1,
+          difficulty: "medium"
+        },
+        {
+          question: "I am writing to ___ about the meeting.",
+          options: ["inquire", "inquiring", "inquiry", "inquired"],
+          correctIndex: 0,
+          difficulty: "medium"
+        },
+        {
+          question: "Thank you for your ___ consideration.",
+          options: ["kind", "kindly", "kindness", "kinds"],
+          correctIndex: 0,
+          difficulty: "medium"
+        }
+      ],
+      
+      // Academic English Grammar
+      "complex_sentences": [
+        {
+          question: "Although it was raining, ___ went to the park.",
+          options: ["but we", "we", "however we", "so we"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "The research ___ that students benefit from online learning.",
+          options: ["indicate", "indicates", "indicating", "indicated"],
+          correctIndex: 1,
+          difficulty: "hard"
+        },
+        {
+          question: "___, this study has several limitations.",
+          options: ["However", "Therefore", "Moreover", "Furthermore"],
+          correctIndex: 0,
+          difficulty: "hard"
+        }
+      ]
+    };
+    
+    // Process each topic
+    topics.forEach((topic, topicIndex) => {
+      const topicExercises = exercises[topic.id] || [];
+      
+      if (topicExercises.length > 0) {
+        console.log(`Generating ${topicExercises.length} exercises for topic: ${topic.title}`);
+        
+        topicExercises.forEach((exercise, exerciseIndex) => {
+          const exerciseId = `${topic.id}_ex_${exerciseIndex + 1}`;
+          
+          db.run(
+            `INSERT OR REPLACE INTO grammar_exercises 
+             (id, topic_id, question, options, correct_index, difficulty, display_order) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              exerciseId,
+              topic.id,
+              exercise.question,
+              JSON.stringify(exercise.options),
+              exercise.correctIndex,
+              exercise.difficulty,
+              exerciseIndex + 1
+            ],
+            function(err) {
+              if (err) {
+                console.error(`Error inserting exercise for ${topic.id}:`, err);
+              } else {
+                exercisesInserted++;
+                console.log(`Inserted exercise: ${exerciseId}`);
+              }
+              
+              // Check if all exercises are processed
+              if (topicIndex === topics.length - 1 && 
+                  exerciseIndex === topicExercises.length - 1) {
+                setTimeout(() => {
+                  console.log(`Finished generating exercises. Total inserted: ${exercisesInserted}`);
+                  res.json({ 
+                    message: "Exercises generated successfully", 
+                    totalExercises: exercisesInserted,
+                    topicsProcessed: topics.length 
+                  });
+                }, 100);
+              }
+            }
+          );
+        });
+      } else {
+        console.log(`No exercises defined for topic: ${topic.title} (${topic.id})`);
+        topicsProcessed++;
+        
+        if (topicsProcessed === topics.length) {
+          res.json({ 
+            message: "Exercise generation completed", 
+            totalExercises: exercisesInserted,
+            topicsProcessed: topics.length 
+          });
+        }
+      }
+    });
+    
+    if (topics.length === 0) {
+      res.json({ message: "No topics found in database" });
+    }
+  });
 });
 
 // --- Grammar Data Seeder Endpoint (for development/demo) ---
@@ -1795,11 +3203,11 @@ app.listen(PORT, () => {
 app.post("/seed-grammar-data", (req, res) => {
   // Sample categories, topics, and exercises
   const categories = [
-    { name: "Tenses", description: "English verb tenses" },
-    { name: "Articles", description: "Definite and indefinite articles" },
-    { name: "Prepositions", description: "Common English prepositions" },
-    { name: "Conditionals", description: "Conditional sentences" },
-    { name: "Passive Voice", description: "Passive constructions" },
+    { id: "tenses", name: "Tenses", description: "English verb tenses" },
+    { id: "articles", name: "Articles", description: "Definite and indefinite articles" },
+    { id: "prepositions", name: "Prepositions", description: "Common English prepositions" },
+    { id: "conditionals", name: "Conditionals", description: "Conditional sentences" },
+    { id: "passive_voice", name: "Passive Voice", description: "Passive constructions" },
   ];
 
   const topics = [
@@ -1949,11 +3357,11 @@ app.post("/seed-grammar-data", (req, res) => {
     let catDone = 0;
     categories.forEach((cat, i) => {
       db.run(
-        "INSERT INTO grammar_categories (name, description) VALUES (?, ?)",
-        [cat.name, cat.description],
+        "INSERT INTO grammar_categories (id, name, description) VALUES (?, ?, ?)",
+        [cat.id, cat.name, cat.description],
         function (err) {
           if (err) return res.status(500).json({ error: err.message });
-          catIds[i] = this.lastID;
+          catIds[i] = cat.id;  // Use the id instead of lastID
           catDone++;
           if (catDone === categories.length) insertTopics();
         }

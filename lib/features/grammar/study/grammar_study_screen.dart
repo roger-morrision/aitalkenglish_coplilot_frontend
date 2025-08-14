@@ -1,64 +1,130 @@
 import 'package:flutter/material.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import '../../../services/api_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:convert';
 
 class GrammarCategory {
-  final int id;
+  final String id;
   final String name;
-  final String? description;
-  GrammarCategory({required this.id, required this.name, this.description});
-  factory GrammarCategory.fromJson(Map<String, dynamic> json) =>
-      GrammarCategory(
-        id: json['id'],
-        name: json['name'],
-        description: json['description'],
+  final int displayOrder;
+  final List<GrammarTopic> topics;
+
+  GrammarCategory({
+    required this.id,
+    required this.name,
+    required this.displayOrder,
+    this.topics = const [],
+  });
+
+  factory GrammarCategory.fromJson(Map<String, dynamic> json) {
+    try {
+      return GrammarCategory(
+        id: json['id']?.toString() ?? '',
+        name: json['name']?.toString() ?? '',
+        displayOrder: int.tryParse(json['display_order']?.toString() ?? '0') ?? 0,
+        topics: (json['topics'] as List<dynamic>?)?.map((e) => GrammarTopic.fromJson(e)).toList() ?? [],
       );
+    } catch (e) {
+      print('Error parsing GrammarCategory: $e');
+      print('JSON data: $json');
+      rethrow;
+    }
+  }
 }
 
 class GrammarTopic {
-  final int id;
-  final int categoryId;
-  final String name;
-  final String? description;
+  final String id;
+  final String categoryId;
+  final String title;
+  final String description;
+  final String level;
+  final int displayOrder;
+  final List<GrammarExercise> exercises;
+
   GrammarTopic({
     required this.id,
     required this.categoryId,
-    required this.name,
-    this.description,
+    required this.title,
+    required this.description,
+    required this.level,
+    required this.displayOrder,
+    this.exercises = const [],
   });
-  factory GrammarTopic.fromJson(Map<String, dynamic> json) => GrammarTopic(
-    id: json['id'],
-    categoryId: json['category_id'],
-    name: json['name'],
-    description: json['description'],
-  );
+
+  factory GrammarTopic.fromJson(Map<String, dynamic> json) {
+    try {
+      return GrammarTopic(
+        id: json['id']?.toString() ?? '',
+        categoryId: json['category_id']?.toString() ?? '',
+        title: json['title']?.toString() ?? '',
+        description: json['description']?.toString() ?? '',
+        level: json['level']?.toString() ?? '',
+        displayOrder: int.tryParse(json['display_order']?.toString() ?? '0') ?? 0,
+        exercises: (json['exercises'] as List<dynamic>?)?.map((e) => GrammarExercise.fromJson(e)).toList() ?? [],
+      );
+    } catch (e) {
+      print('Error parsing GrammarTopic: $e');
+      print('JSON data: $json');
+      rethrow;
+    }
+  }
 }
 
 class GrammarExercise {
-  final int id;
-  final int topicId;
+  final String id;
+  final String topicId;
   final String question;
   final List<String> options;
-  final String answer;
-  final String? explanation;
+  final int correctIndex;
+  final String difficulty;
+  final int displayOrder;
+  
+  // Progress information
+  final bool hasUserCompleted;
+  final Map<String, dynamic>? userResult;
+
   GrammarExercise({
     required this.id,
     required this.topicId,
     required this.question,
     required this.options,
-    required this.answer,
-    this.explanation,
+    required this.correctIndex,
+    required this.difficulty,
+    required this.displayOrder,
+    this.hasUserCompleted = false,
+    this.userResult,
   });
-  factory GrammarExercise.fromJson(Map<String, dynamic> json) =>
-      GrammarExercise(
-        id: json['id'],
-        topicId: json['topic_id'],
-        question: json['question'],
-        options: List<String>.from(json['options']),
-        answer: json['answer'],
-        explanation: json['explanation'],
+
+  factory GrammarExercise.fromJson(Map<String, dynamic> json) {
+    try {
+      List<String> options = [];
+      if (json['options'] is String) {
+        // Parse JSON string
+        final optionsData = jsonDecode(json['options']);
+        if (optionsData is List) {
+          options = List<String>.from(optionsData);
+        }
+      } else if (json['options'] is List) {
+        options = List<String>.from(json['options']);
+      }
+      
+      return GrammarExercise(
+        id: json['id']?.toString() ?? '',
+        topicId: json['topic_id']?.toString() ?? '',
+        question: json['question']?.toString() ?? '',
+        options: options,
+        correctIndex: int.tryParse(json['correct_index']?.toString() ?? '0') ?? 0,
+        difficulty: json['difficulty']?.toString() ?? 'easy',
+        displayOrder: int.tryParse(json['display_order']?.toString() ?? '0') ?? 0,
+        hasUserCompleted: json['hasUserCompleted'] == true,
+        userResult: json['userResult'] as Map<String, dynamic>?,
       );
+    } catch (e) {
+      print('Error parsing GrammarExercise: $e');
+      print('JSON data: $json');
+      rethrow;
+    }
+  }
 }
 
 class GrammarStudyScreen extends StatefulWidget {
@@ -71,6 +137,7 @@ class GrammarStudyScreen extends StatefulWidget {
 class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
   GrammarCategory? selectedCategory;
   GrammarTopic? selectedTopic;
+  bool showingTopicExplanation = false;
   int userLevel = 1;
   int completedExercises = 0;
 
@@ -79,8 +146,6 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
   List<GrammarExercise> exercises = [];
   bool loading = false;
   String? error;
-
-  final String apiBase = 'http://localhost:3000';
 
   String? userId;
 
@@ -106,15 +171,9 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
   Future<void> _fetchCompletedExercises() async {
     if (userId == null) return;
     try {
-      final res = await http.get(
-        Uri.parse('$apiBase/user/$userId/grammar-study'),
-      );
-      if (res.statusCode == 200) {
-        final data = json.decode(res.body);
-        final results = data['results'] as List?;
-        completedExercises = results?.length ?? 0;
-        setState(() {});
-      }
+      final results = await ApiService.getUserGrammarStudyResults(userId!);
+      completedExercises = results.length;
+      setState(() {});
     } catch (e) {
       // ignore error
     }
@@ -126,14 +185,13 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
       error = null;
     });
     try {
-      final res = await http.get(Uri.parse('$apiBase/grammar/categories'));
-      if (res.statusCode == 200) {
-        final List data = json.decode(res.body);
-        categories = data.map((e) => GrammarCategory.fromJson(e)).toList();
-      } else {
-        error = 'Failed to load categories';
-      }
+      print('Loading grammar categories...');
+      final data = await ApiService.getGrammarCategories();
+      print('Raw categories data: $data');
+      categories = data.map((e) => GrammarCategory.fromJson(e)).toList();
+      print('Parsed ${categories.length} categories');
     } catch (e) {
+      print('Error loading categories: $e');
       error = e.toString();
     }
     setState(() {
@@ -141,7 +199,7 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
     });
   }
 
-  Future<void> _fetchTopics(int categoryId) async {
+  Future<void> _fetchTopics(String categoryId) async {
     setState(() {
       loading = true;
       error = null;
@@ -149,16 +207,13 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
       exercises = [];
     });
     try {
-      final res = await http.get(
-        Uri.parse('$apiBase/grammar/categories/$categoryId/topics'),
-      );
-      if (res.statusCode == 200) {
-        final List data = json.decode(res.body);
-        topics = data.map((e) => GrammarTopic.fromJson(e)).toList();
-      } else {
-        error = 'Failed to load topics';
-      }
+      print('Loading topics for category: $categoryId');
+      final data = await ApiService.getGrammarTopics(categoryId);
+      print('Raw topics data: $data');
+      topics = data.map((e) => GrammarTopic.fromJson(e)).toList();
+      print('Parsed ${topics.length} topics');
     } catch (e) {
+      print('Error loading topics: $e');
       error = e.toString();
     }
     setState(() {
@@ -166,24 +221,31 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
     });
   }
 
-  Future<void> _fetchExercises(int topicId) async {
+  Future<void> _fetchExercises(String topicId) async {
     setState(() {
       loading = true;
       error = null;
       exercises = [];
     });
     try {
-      final res = await http.get(
-        Uri.parse('$apiBase/grammar/topics/$topicId/exercises'),
-      );
-      if (res.statusCode == 200) {
-        final List data = json.decode(res.body);
+      if (userId != null) {
+        // Fetch exercises with user progress
+        final data = await ApiService.getGrammarExercisesWithProgress(userId!, topicId);
         exercises = data.map((e) => GrammarExercise.fromJson(e)).toList();
       } else {
-        error = 'Failed to load exercises';
+        // Fallback to exercises without progress
+        final data = await ApiService.getGrammarExercises(topicId);
+        exercises = data.map((e) => GrammarExercise.fromJson(e)).toList();
       }
     } catch (e) {
       error = e.toString();
+      // Fallback to basic exercises if progress fetch fails
+      try {
+        final data = await ApiService.getGrammarExercises(topicId);
+        exercises = data.map((e) => GrammarExercise.fromJson(e)).toList();
+      } catch (fallbackError) {
+        error = fallbackError.toString();
+      }
     }
     setState(() {
       loading = false;
@@ -203,14 +265,22 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
   void _selectTopic(GrammarTopic topic) {
     setState(() {
       selectedTopic = topic;
+      showingTopicExplanation = true;
       exercises = [];
     });
-    _fetchExercises(topic.id);
+  }
+
+  void _startExercises() {
+    setState(() {
+      showingTopicExplanation = false;
+    });
+    _fetchExercises(selectedTopic!.id);
   }
 
   void _onExerciseCompleted({
     required GrammarExercise exercise,
     required bool isCorrect,
+    required int selectedAnswer,
   }) async {
     setState(() {
       completedExercises++;
@@ -221,18 +291,17 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
     // Save to backend
     if (userId != null && selectedCategory != null && selectedTopic != null) {
       try {
-        await http.post(
-          Uri.parse('$apiBase/user/$userId/grammar-study'),
-          headers: {'Content-Type': 'application/json'},
-          body: json.encode({
-            'category_id': selectedCategory!.id,
-            'topic_id': selectedTopic!.id,
-            'exercise_id': exercise.id,
-            'is_correct': isCorrect,
-          }),
+        await ApiService.saveGrammarStudyResult(
+          userId: userId!,
+          categoryId: selectedCategory!.id,
+          topicId: selectedTopic!.id,
+          exerciseId: exercise.id,
+          isCorrect: isCorrect,
+          selectedAnswer: selectedAnswer,
         );
       } catch (e) {
-        // ignore error
+        print('Error saving grammar result: $e');
+        // ignore error for now
       }
     }
   }
@@ -251,9 +320,14 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
                 icon: const Icon(Icons.arrow_back),
                 onPressed: () {
                   setState(() {
-                    if (selectedTopic != null) {
-                      // Go back from exercise to topic list
+                    if (selectedTopic != null && !showingTopicExplanation) {
+                      // Go back from exercises to topic explanation
+                      showingTopicExplanation = true;
+                      exercises = [];
+                    } else if (selectedTopic != null && showingTopicExplanation) {
+                      // Go back from topic explanation to topic list
                       selectedTopic = null;
+                      showingTopicExplanation = false;
                     } else if (selectedCategory != null) {
                       // Go back from topic list to category list
                       selectedCategory = null;
@@ -286,6 +360,9 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            // Breadcrumb navigation
+            _buildBreadcrumb(),
+            const SizedBox(height: 16),
             if (loading) const Center(child: CircularProgressIndicator()),
             if (error != null)
               Text(error!, style: TextStyle(color: Colors.red)),
@@ -294,10 +371,141 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
                 Expanded(child: _buildCategoryList())
               else if (selectedTopic == null)
                 Expanded(child: _buildTopicList())
+              else if (showingTopicExplanation)
+                Expanded(child: _buildTopicExplanation())
               else
                 Expanded(child: _buildExerciseList()),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildBreadcrumb() {
+    if (selectedCategory == null) {
+      return Container(); // No breadcrumb for category list
+    }
+
+    List<Widget> breadcrumbItems = [];
+
+    // Add "Grammar Categories" link if we're not at the top level
+    breadcrumbItems.add(
+      GestureDetector(
+        onTap: () {
+          setState(() {
+            selectedCategory = null;
+            selectedTopic = null;
+            topics = [];
+            exercises = [];
+          });
+        },
+        child: Text(
+          'Grammar Categories',
+          style: TextStyle(
+            color: Colors.deepPurple,
+            decoration: TextDecoration.underline,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+
+    // Add separator
+    breadcrumbItems.add(
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0),
+        child: Icon(Icons.keyboard_arrow_right, color: Colors.grey),
+      ),
+    );
+
+    // Add current category (clickable if we're in topic/exercise view)
+    breadcrumbItems.add(
+      GestureDetector(
+        onTap: selectedTopic != null ? () {
+          setState(() {
+            selectedTopic = null;
+            showingTopicExplanation = false;
+            exercises = [];
+          });
+        } : null,
+        child: Text(
+          selectedCategory!.name,
+          style: TextStyle(
+            color: selectedTopic != null ? Colors.deepPurple : Colors.black,
+            decoration: selectedTopic != null ? TextDecoration.underline : null,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+
+    // Add current topic if selected
+    if (selectedTopic != null) {
+      breadcrumbItems.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          child: Icon(Icons.keyboard_arrow_right, color: Colors.grey),
+        ),
+      );
+
+      breadcrumbItems.add(
+        GestureDetector(
+          onTap: !showingTopicExplanation ? () {
+            setState(() {
+              showingTopicExplanation = true;
+              exercises = [];
+            });
+          } : null,
+          child: Text(
+            selectedTopic!.title,
+            style: TextStyle(
+              color: !showingTopicExplanation ? Colors.deepPurple : Colors.black,
+              decoration: !showingTopicExplanation ? TextDecoration.underline : null,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      );
+
+      // Add "Exercises" indicator if we're in exercise view
+      if (!showingTopicExplanation) {
+        breadcrumbItems.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Icon(Icons.keyboard_arrow_right, color: Colors.grey),
+          ),
+        );
+
+        breadcrumbItems.add(
+          Text(
+            'Exercises',
+            style: TextStyle(
+              color: Colors.black,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        );
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(8.0),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.home_outlined, size: 16, color: Colors.grey.shade600),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: breadcrumbItems,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -312,9 +520,7 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
             (cat) => Card(
               child: ListTile(
                 title: Text(cat.name),
-                subtitle: cat.description != null
-                    ? Text(cat.description!)
-                    : null,
+                subtitle: Text('Level: ${cat.topics.isNotEmpty ? cat.topics.first.level : 'Unknown'}'),
                 trailing: const Icon(Icons.arrow_forward_ios),
                 onTap: () => _selectCategory(cat),
               ),
@@ -333,16 +539,259 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
           .map(
             (topic) => Card(
               child: ListTile(
-                title: Text(topic.name),
-                subtitle: topic.description != null
-                    ? Text(topic.description!)
-                    : null,
-                trailing: const Icon(Icons.arrow_forward_ios),
+                title: Text(topic.title),
+                subtitle: Text(topic.description),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Chip(
+                      label: Text(topic.level),
+                      backgroundColor: _getLevelColor(topic.level),
+                    ),
+                    const SizedBox(width: 8),
+                    const Icon(Icons.arrow_forward_ios),
+                  ],
+                ),
                 onTap: () => _selectTopic(topic),
               ),
             ),
           )
           .toList(),
+    );
+  }
+
+  Widget _buildTopicExplanation() {
+    if (selectedTopic == null) {
+      return const Center(child: Text('No topic selected.'));
+    }
+
+    final topic = selectedTopic!;
+
+    return FutureBuilder<Map<String, dynamic>>(
+      future: ApiService.getGrammarTopicExplanation(topic.id),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: Colors.red),
+                const SizedBox(height: 16),
+                Text(
+                  'Error loading explanation: ${snapshot.error}',
+                  style: TextStyle(color: Colors.red),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => setState(() {}), // Trigger rebuild
+                  child: Text('Retry'),
+                ),
+              ],
+            ),
+          );
+        }
+        
+        final explanationData = snapshot.data ?? {};
+        final explanation = explanationData['explanation'] ?? 'Explanation coming soon...';
+        final examples = List<String>.from(explanationData['examples'] ?? [
+          'Example sentences will be available soon.',
+          'Check back later for detailed examples.',
+        ]);
+
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Topic header
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20.0),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.deepPurple.shade100, Colors.deepPurple.shade50],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12.0),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.school, color: Colors.deepPurple, size: 28),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            topic.title,
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.deepPurple.shade700,
+                            ),
+                          ),
+                        ),
+                        Chip(
+                          label: Text(topic.level),
+                          backgroundColor: _getLevelColor(topic.level),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      topic.description,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.deepPurple.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Explanation section
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20.0),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(12.0),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.lightbulb_outline, color: Colors.blue.shade700),
+                        const SizedBox(width: 8),
+                        Text(
+                          'How to use this grammar',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      explanation,
+                      style: TextStyle(
+                        fontSize: 16,
+                        height: 1.5,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Examples section
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20.0),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(12.0),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.format_quote, color: Colors.green.shade700),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Examples',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    ...examples
+                        .map<Widget>((example) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12.0),
+                              child: Container(
+                                padding: const EdgeInsets.all(12.0),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8.0),
+                                  border: Border.all(color: Colors.green.shade300),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.check_circle, 
+                                         color: Colors.green.shade600, size: 16),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        example,
+                                        style: TextStyle(
+                                          fontSize: 15,
+                                          color: Colors.green.shade800,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ))
+                        .toList(),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 32),
+
+              // Start exercises button
+              Center(
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _startExercises,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepPurple,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 16.0),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12.0),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.quiz_outlined, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Start Exercises',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -356,19 +805,32 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
             (ex) => Card(
               child: GrammarExerciseWidget(
                 exercise: ex,
-                onCompleted: (bool isCorrect) =>
-                    _onExerciseCompleted(exercise: ex, isCorrect: isCorrect),
+                onCompleted: (bool isCorrect, int selectedAnswer) =>
+                    _onExerciseCompleted(exercise: ex, isCorrect: isCorrect, selectedAnswer: selectedAnswer),
               ),
             ),
           )
           .toList(),
     );
   }
+
+  Color _getLevelColor(String level) {
+    switch (level.toLowerCase()) {
+      case 'easy':
+        return Colors.green.shade100;
+      case 'medium':
+        return Colors.orange.shade100;
+      case 'hard':
+        return Colors.red.shade100;
+      default:
+        return Colors.grey.shade100;
+    }
+  }
 }
 
 class GrammarExerciseWidget extends StatefulWidget {
   final GrammarExercise exercise;
-  final void Function(bool isCorrect) onCompleted;
+  final void Function(bool isCorrect, int selectedAnswer) onCompleted;
   const GrammarExerciseWidget({
     required this.exercise,
     required this.onCompleted,
@@ -384,17 +846,57 @@ class _GrammarExerciseWidgetState extends State<GrammarExerciseWidget> {
   bool answered = false;
 
   @override
+  void initState() {
+    super.initState();
+    // If the exercise was already completed, show the previous result
+    if (widget.exercise.hasUserCompleted && widget.exercise.userResult != null) {
+      answered = true;
+      selectedIndex = widget.exercise.userResult!['selectedAnswer'] as int?;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // Find correct index by matching answer string
-    int correctIndex = widget.exercise.options.indexOf(widget.exercise.answer);
+    final correctIndex = widget.exercise.correctIndex;
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            widget.exercise.question,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.exercise.question,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                ),
+              ),
+              if (widget.exercise.hasUserCompleted)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: widget.exercise.userResult!['isCorrect'] == true
+                        ? Colors.green.shade100
+                        : Colors.orange.shade100,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: widget.exercise.userResult!['isCorrect'] == true
+                          ? Colors.green.shade300
+                          : Colors.orange.shade300,
+                    ),
+                  ),
+                  child: Text(
+                    widget.exercise.userResult!['isCorrect'] == true ? 'Completed ✓' : 'Previously Attempted',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: widget.exercise.userResult!['isCorrect'] == true
+                          ? Colors.green.shade700
+                          : Colors.orange.shade700,
+                    ),
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 8),
           ...List.generate(widget.exercise.options.length, (i) {
@@ -429,18 +931,18 @@ class _GrammarExerciseWidgetState extends State<GrammarExerciseWidget> {
                   : () {
                       setState(() => answered = true);
                       final isCorrect = selectedIndex == correctIndex;
-                      widget.onCompleted(isCorrect);
+                      widget.onCompleted(isCorrect, selectedIndex!);
                       if (isCorrect) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Correct!'),
+                          const SnackBar(
+                            content: Text('Correct! Well done!'),
                             backgroundColor: Colors.green,
                           ),
                         );
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('Try again!'),
+                            content: Text('Incorrect. The correct answer is: ${widget.exercise.options[correctIndex]}'),
                             backgroundColor: Colors.red,
                           ),
                         );
@@ -448,12 +950,41 @@ class _GrammarExerciseWidgetState extends State<GrammarExerciseWidget> {
                     },
               child: const Text('Submit'),
             ),
-          if (answered && widget.exercise.explanation != null)
+          if (answered)
             Padding(
               padding: const EdgeInsets.only(top: 8.0),
-              child: Text(
-                'Explanation: ${widget.exercise.explanation!}',
-                style: TextStyle(color: Colors.grey[700]),
+              child: Container(
+                padding: const EdgeInsets.all(12.0),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8.0),
+                  border: Border.all(color: Colors.blue.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Explanation:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.blue.shade800,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'The correct answer is "${widget.exercise.options[correctIndex]}" (option ${correctIndex + 1}).',
+                      style: TextStyle(color: Colors.blue.shade700),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Difficulty: ${widget.exercise.difficulty}',
+                      style: TextStyle(
+                        color: Colors.grey[600],
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
         ],
