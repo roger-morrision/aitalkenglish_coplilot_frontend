@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/api_service.dart';
+import 'environment_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -469,6 +471,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
+                        
+                        // Environment Settings (Debug only)
+                        if (kDebugMode) ...[
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.orange[50],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.orange[200]!),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(Icons.developer_mode, color: Colors.orange[700], size: 20),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Developer Settings',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.orange[800],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'Configure API endpoints and environment settings.',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Colors.orange[700],
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton.icon(
+                                    onPressed: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (context) => const EnvironmentSettingsScreen(),
+                                        ),
+                                      );
+                                    },
+                                    icon: const Icon(Icons.settings_applications),
+                                    label: const Text('Environment Settings'),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.orange[600],
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
                         
                         // Available Models
                         Text(

@@ -5,7 +5,6 @@ import 'features/grammar/grammar_screen.dart';
 import 'features/vocab/vocab_screen.dart';
 import 'features/lesson/lesson_screen.dart';
 import 'features/progress/progress_screen.dart';
-import 'features/settings/settings_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,8 +16,8 @@ import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:io' show Platform;
-import 'models/user_progress.dart';
-import 'services/progress_service.dart';
+import 'config/api_config.dart';
+import 'config/env_config.dart';
 
 class AppState extends ChangeNotifier {
   int streak = 0;
@@ -79,6 +78,16 @@ class _MainScreenState extends State<MainScreen> {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load environment variables
+  await EnvConfig.init();
+  
+  // Print configuration for debugging in development mode
+  if (kDebugMode) {
+    EnvConfig.printConfig();
+    EnvConfig.validateRequired();
+    ApiConfig.printConfig();
+  }
 
   runApp(
     ChangeNotifierProvider(
