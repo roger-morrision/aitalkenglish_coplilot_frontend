@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import '../../../services/api_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:convert';
+import 'package:provider/provider.dart';
+import '../../../providers/subscription_provider.dart';
+import '../../../widgets/subscription_widgets.dart';
 
 class GrammarCategory {
   final String id;
@@ -301,6 +304,40 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
     }
   }
 
+  void _showPremiumRequiredDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Premium Required'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.lock, size: 48, color: Colors.orange),
+              SizedBox(height: 16),
+              Text('This grammar category is only available for Premium users.'),
+              SizedBox(height: 16),
+              Text('Upgrade to Premium to unlock all grammar categories and get unlimited chat messages!'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Maybe Later'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushNamed(context, '/subscription');
+              },
+              child: Text('Upgrade Now'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _selectCategory(GrammarCategory category) {
     setState(() {
       selectedCategory = category;
@@ -534,19 +571,42 @@ class _GrammarStudyScreenState extends State<GrammarStudyScreen> {
     if (categories.isEmpty) {
       return const Center(child: Text('No categories found.'));
     }
-    return ListView(
-      children: categories
-          .map(
-            (cat) => Card(
+
+    return Consumer<SubscriptionProvider>(
+      builder: (context, subscriptionProvider, child) {
+        final isPremium = subscriptionProvider.isPremium;
+        
+        return ListView(
+          children: categories.asMap().entries.map((entry) {
+            final index = entry.key;
+            final cat = entry.value;
+            final isLocked = !isPremium && index > 0; // Only first category (index 0) is free
+            
+            return Card(
               child: ListTile(
-                title: Text(cat.name),
+                title: Row(
+                  children: [
+                    Expanded(child: Text(cat.name)),
+                    if (isLocked) 
+                      Icon(Icons.lock, color: Colors.grey, size: 20),
+                  ],
+                ),
                 subtitle: Text('Level: ${cat.topics.isNotEmpty ? cat.topics.first.level : 'Unknown'}'),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () => _selectCategory(cat),
+                trailing: isLocked 
+                  ? Icon(Icons.upgrade, color: Colors.orange)
+                  : Icon(Icons.arrow_forward_ios),
+                onTap: () {
+                  if (isLocked) {
+                    _showPremiumRequiredDialog();
+                  } else {
+                    _selectCategory(cat);
+                  }
+                },
               ),
-            ),
-          )
-          .toList(),
+            );
+          }).toList(),
+        );
+      },
     );
   }
 

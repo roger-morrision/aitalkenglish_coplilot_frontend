@@ -3,6 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const sqlite3 = require("sqlite3").verbose();
 const axios = require("axios");
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_your_secret_key_here');
 
 const app = express();
 
@@ -227,6 +228,74 @@ db.serialize(() => {
     FOREIGN KEY (category_id) REFERENCES grammar_categories (id)
   )`);
 
+  // Subscription plans table
+  db.run(`CREATE TABLE IF NOT EXISTS subscription_plans (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    price_monthly REAL NOT NULL,
+    price_yearly REAL,
+    features TEXT NOT NULL,
+    max_daily_messages INTEGER,
+    max_monthly_messages INTEGER,
+    grammar_categories_access TEXT,
+    is_active BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`);
+
+  // User subscriptions table
+  db.run(`CREATE TABLE IF NOT EXISTS user_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    plan_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active',
+    billing_cycle TEXT NOT NULL DEFAULT 'monthly',
+    start_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    end_date DATETIME NOT NULL,
+    auto_renew BOOLEAN DEFAULT 1,
+    payment_method TEXT,
+    transaction_id TEXT,
+    payment_intent_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (plan_id) REFERENCES subscription_plans (id)
+  )`);
+
+  // Add payment_intent_id column to existing table if it doesn't exist
+  db.run(`ALTER TABLE user_subscriptions ADD COLUMN payment_intent_id TEXT`, (err) => {
+    if (err && !err.message.includes('duplicate column name')) {
+      console.log('Note: payment_intent_id column may already exist or error occurred:', err.message);
+    }
+  });
+
+  // User usage tracking table
+  db.run(`CREATE TABLE IF NOT EXISTS user_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    usage_type TEXT NOT NULL,
+    usage_date DATE NOT NULL,
+    count INTEGER DEFAULT 1,
+    reset_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, usage_type, usage_date)
+  )`);
+
+  // Payment transactions table
+  db.run(`CREATE TABLE IF NOT EXISTS payment_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    subscription_id INTEGER,
+    amount REAL NOT NULL,
+    currency TEXT DEFAULT 'USD',
+    status TEXT NOT NULL DEFAULT 'pending',
+    payment_method TEXT,
+    transaction_reference TEXT,
+    gateway_response TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (subscription_id) REFERENCES user_subscriptions (id)
+  )`);
+
   // Initialize default AI model setting
   db.run(
     "INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES (?, ?)",
@@ -260,7 +329,44 @@ db.serialize(() => {
 
   // Initialize grammar study data
   initializeGrammarData();
+  
+  // Initialize subscription plans
+  initializeSubscriptionPlans();
 });
+
+// Helper function to track user usage
+function trackUserUsage(userId, type = 'chat') {
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Try INSERT OR IGNORE first, then UPDATE
+  db.run(
+    "INSERT OR IGNORE INTO user_usage (user_id, usage_type, usage_date, count) VALUES (?, ?, ?, 1)",
+    [userId, type, today],
+    function(err) {
+      if (err) {
+        console.error("Error tracking usage (insert):", err);
+        return;
+      }
+      
+      if (this.changes === 0) {
+        // Record already exists, update it
+        db.run(
+          "UPDATE user_usage SET count = count + 1 WHERE user_id = ? AND usage_type = ? AND usage_date = ?",
+          [userId, type, today],
+          function(err) {
+            if (err) {
+              console.error("Error tracking usage (update):", err);
+            } else {
+              console.log(`Usage tracked for user ${userId}: ${type}`);
+            }
+          }
+        );
+      } else {
+        console.log(`New usage record created for user ${userId}: ${type}`);
+      }
+    }
+  );
+}
 
 // Grammar study data initialization
 function initializeGrammarData() {
@@ -358,6 +464,107 @@ function initializeGrammarData() {
     insertExercise.finalize();
 
     console.log("Grammar study data initialized successfully");
+  });
+}
+
+// Subscription plans initialization
+function initializeSubscriptionPlans() {
+  // Check if subscription plans already exist
+  db.get("SELECT COUNT(*) as count FROM subscription_plans", (err, row) => {
+    if (err) {
+      console.error("Error checking subscription plans:", err);
+      return;
+    }
+    
+    if (row.count > 0) {
+      console.log("Subscription plans already exist, skipping initialization");
+      return;
+    }
+
+    console.log("Initializing subscription plans...");
+    
+    // Define subscription plans
+    const plans = [
+      {
+        id: 'free',
+        name: 'Free Plan',
+        description: 'Limited access to basic features',
+        price_monthly: 0,
+        price_yearly: 0,
+        features: JSON.stringify([
+          'Up to 3 AI chat messages per day',
+          'Access to Grammar Foundations only',
+          'Basic progress tracking',
+          'Community support'
+        ]),
+        max_daily_messages: 3,
+        max_monthly_messages: 90,
+        grammar_categories_access: JSON.stringify(['foundations'])
+      },
+      {
+        id: 'premium_monthly',
+        name: 'Premium Monthly',
+        description: 'Full access to all features with monthly billing',
+        price_monthly: 9.99,
+        price_yearly: null,
+        features: JSON.stringify([
+          'Unlimited AI chat messages',
+          'Access to all grammar categories',
+          'Advanced progress analytics',
+          'Priority support',
+          'Voice features',
+          'Conversation history',
+          'Achievement system'
+        ]),
+        max_daily_messages: -1,
+        max_monthly_messages: -1,
+        grammar_categories_access: JSON.stringify(['all'])
+      },
+      {
+        id: 'premium_yearly',
+        name: 'Premium Yearly',
+        description: 'Full access to all features with yearly billing (2 months free)',
+        price_monthly: 8.33,
+        price_yearly: 99.99,
+        features: JSON.stringify([
+          'Unlimited AI chat messages',
+          'Access to all grammar categories',
+          'Advanced progress analytics',
+          'Priority support',
+          'Voice features',
+          'Conversation history',
+          'Achievement system',
+          'Annual discount (17% off)'
+        ]),
+        max_daily_messages: -1,
+        max_monthly_messages: -1,
+        grammar_categories_access: JSON.stringify(['all'])
+      }
+    ];
+
+    // Insert subscription plans
+    const insertPlan = db.prepare(`
+      INSERT OR IGNORE INTO subscription_plans 
+      (id, name, description, price_monthly, price_yearly, features, max_daily_messages, max_monthly_messages, grammar_categories_access) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    
+    plans.forEach(plan => {
+      insertPlan.run(
+        plan.id, 
+        plan.name, 
+        plan.description, 
+        plan.price_monthly, 
+        plan.price_yearly, 
+        plan.features, 
+        plan.max_daily_messages, 
+        plan.max_monthly_messages, 
+        plan.grammar_categories_access
+      );
+    });
+    insertPlan.finalize();
+
+    console.log("Subscription plans initialized successfully");
   });
 }
 
@@ -779,6 +986,8 @@ app.post("/user/:userId/track-message", (req, res) => {
 
   // --- Grammar Data Endpoints ---
 
+  // --- Grammar Data Endpoints ---
+
   // Get all grammar categories
   app.get("/grammar/categories", (req, res) => {
     db.all("SELECT * FROM grammar_categories ORDER BY display_order", [], (err, rows) => {
@@ -803,18 +1012,19 @@ app.post("/user/:userId/track-message", (req, res) => {
     );
   });
 
-  // Get all topics for a category
-  app.get("/grammar/categories/:categoryId/topics", (req, res) => {
-    const { categoryId } = req.params;
-    db.all(
-      "SELECT * FROM grammar_topics WHERE category_id = ?",
-      [categoryId],
-      (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-      }
-    );
-  });
+  // OLD ENDPOINT REMOVED - Use the one in the GRAMMAR STUDY MODULE section below instead
+  // Get all topics for a category - DEPRECATED
+  // app.get("/grammar/categories/:categoryId/topics", (req, res) => {
+  //   const { categoryId } = req.params;
+  //   db.all(
+  //     "SELECT * FROM grammar_topics WHERE category_id = ?",
+  //     [categoryId],
+  //     (err, rows) => {
+  //       if (err) return res.status(500).json({ error: err.message });
+  //       res.json(rows);
+  //     }
+  //   );
+  // });
 
   // Create a topic for a category
   app.post("/grammar/categories/:categoryId/topics", (req, res) => {
@@ -1039,7 +1249,98 @@ app.post("/chat-with-suggestions", async (req, res) => {
   console.log("Request body:", req.body);
   console.log("Request origin:", req.headers.origin);
 
-  const { message, include_suggestions = true } = req.body;
+  const { message, include_suggestions = true, userId } = req.body;
+
+  // Check subscription and usage limits for authenticated users
+  if (userId) {
+    try {
+      // Get user's subscription and usage status
+      const usageResponse = await new Promise((resolve, reject) => {
+        // Get user's subscription
+        db.get(`
+          SELECT us.*, sp.max_daily_messages, sp.max_monthly_messages, sp.grammar_categories_access, sp.name as plan_name
+          FROM user_subscriptions us
+          JOIN subscription_plans sp ON us.plan_id = sp.id
+          WHERE us.user_id = ? AND us.status = 'active' AND us.end_date > datetime('now')
+          ORDER BY us.created_at DESC LIMIT 1
+        `, [userId], (err, subscription) => {
+          if (err) {
+            return reject(err);
+          }
+          
+          // Default to free plan if no subscription
+          if (!subscription) {
+            db.get("SELECT * FROM subscription_plans WHERE id = 'free'", (err, freePlan) => {
+              if (err) {
+                return reject(err);
+              }
+              
+              subscription = {
+                plan_id: 'free',
+                max_daily_messages: freePlan.max_daily_messages,
+                max_monthly_messages: freePlan.max_monthly_messages,
+                grammar_categories_access: freePlan.grammar_categories_access,
+                plan_name: freePlan.name
+              };
+              
+              checkUsage();
+            });
+          } else {
+            checkUsage();
+          }
+          
+          function checkUsage() {
+            const today = new Date().toISOString().split('T')[0];
+            
+            // Get today's usage
+            db.get(
+              "SELECT count FROM user_usage WHERE user_id = ? AND usage_type = 'chat' AND usage_date = ?",
+              [userId, today],
+              (err, usage) => {
+                if (err) {
+                  return reject(err);
+                }
+                
+                const todayUsage = usage ? usage.count : 0;
+                const maxDaily = subscription.max_daily_messages;
+                
+                // Check if unlimited (-1) or under limit
+                const hasUnlimitedDaily = maxDaily === -1;
+                const canUseToday = hasUnlimitedDaily || todayUsage < maxDaily;
+                
+                resolve({
+                  can_use: canUseToday,
+                  today_usage: todayUsage,
+                  daily_limit: maxDaily,
+                  plan_name: subscription.plan_name,
+                  is_unlimited: hasUnlimitedDaily,
+                  remaining_today: hasUnlimitedDaily ? -1 : Math.max(0, maxDaily - todayUsage)
+                });
+              }
+            );
+          }
+        });
+      });
+
+      // Check if user has exceeded their daily limit
+      if (!usageResponse.can_use) {
+        return res.status(429).json({
+          error: "Daily message limit exceeded",
+          usage_info: {
+            plan: usageResponse.plan_name,
+            today_usage: usageResponse.today_usage,
+            daily_limit: usageResponse.daily_limit,
+            remaining_today: usageResponse.remaining_today
+          },
+          message: `You've reached your daily limit of ${usageResponse.daily_limit} messages. Please upgrade to premium for unlimited messages or try again tomorrow.`
+        });
+      }
+
+    } catch (error) {
+      console.error("Error checking subscription/usage:", error);
+      // Continue without subscription check in case of error
+    }
+  }
 
   // Check if API key is configured
   if (!OPENROUTER_API_KEY || OPENROUTER_API_KEY === "your_api_key_here") {
@@ -1184,9 +1485,17 @@ Be encouraging, friendly, and always redirect conversations toward English pract
 
         // Validate the response structure
         if (parsedResponse.reply && parsedResponse.suggestions) {
+          // Track usage for authenticated users
+          if (userId) {
+            trackUserUsage(userId, 'chat');
+          }
           res.json(parsedResponse);
         } else {
           // Fallback if structure is incorrect
+          // Track usage for authenticated users
+          if (userId) {
+            trackUserUsage(userId, 'chat');
+          }
           res.json({
             reply: parsedResponse.reply || aiResponse,
             suggestions: parsedResponse.suggestions || {
@@ -1200,6 +1509,10 @@ Be encouraging, friendly, and always redirect conversations toward English pract
       } catch (parseError) {
         console.error("Failed to parse combined response:", parseError);
         // Fallback to basic response
+        // Track usage for authenticated users
+        if (userId) {
+          trackUserUsage(userId, 'chat');
+        }
         res.json({
           reply: aiResponse,
           suggestions: {
@@ -1212,6 +1525,10 @@ Be encouraging, friendly, and always redirect conversations toward English pract
       }
     } else {
       // Simple chat mode
+      // Track usage for authenticated users
+      if (userId) {
+        trackUserUsage(userId, 'chat');
+      }
       res.json({ reply: aiResponse });
     }
   } catch (err) {
@@ -1869,18 +2186,19 @@ app.post("/grammar/categories", (req, res) => {
   );
 });
 
-// Get all topics for a category
-app.get("/grammar/categories/:categoryId/topics", (req, res) => {
-  const { categoryId } = req.params;
-  db.all(
-    "SELECT * FROM grammar_topics WHERE category_id = ?",
-    [categoryId],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json(rows);
-    }
-  );
-});
+// OLD ENDPOINT REMOVED - Use the one in the GRAMMAR STUDY MODULE section below instead
+// Get all topics for a category - DEPRECATED
+// app.get("/grammar/categories/:categoryId/topics", (req, res) => {
+//   const { categoryId } = req.params;
+//   db.all(
+//     "SELECT * FROM grammar_topics WHERE category_id = ?",
+//     [categoryId],
+//     (err, rows) => {
+//       if (err) return res.status(500).json({ error: err.message });
+//       res.json(rows);
+//     }
+//   );
+// });
 
 // Create a topic for a category
 app.post("/grammar/categories/:categoryId/topics", (req, res) => {
@@ -1934,11 +2252,296 @@ app.post("/grammar/topics/:topicId/exercises", (req, res) => {
 });
 
 // ===========================================
+// SUBSCRIPTION SYSTEM API ENDPOINTS
+// ===========================================
+
+// Get all available subscription plans
+app.get("/subscription/plans", (req, res) => {
+  db.all(
+    "SELECT * FROM subscription_plans WHERE is_active = 1 ORDER BY price_monthly ASC",
+    (err, rows) => {
+      if (err) {
+        console.error("Error fetching subscription plans:", err);
+        return res.status(500).json({ error: err.message });
+      }
+      
+      // Parse JSON fields
+      const plans = rows.map(plan => ({
+        ...plan,
+        features: JSON.parse(plan.features || '[]'),
+        grammar_categories_access: JSON.parse(plan.grammar_categories_access || '[]')
+      }));
+      
+      res.json({ plans });
+    }
+  );
+});
+
+// Get user's current subscription status
+app.get("/user/:userId/subscription", (req, res) => {
+  const { userId } = req.params;
+  
+  db.get(`
+    SELECT us.*, sp.name as plan_name, sp.features, sp.max_daily_messages, 
+           sp.max_monthly_messages, sp.grammar_categories_access, sp.price_monthly
+    FROM user_subscriptions us
+    JOIN subscription_plans sp ON us.plan_id = sp.id
+    WHERE us.user_id = ? AND us.status = 'active' AND us.end_date > datetime('now')
+    ORDER BY us.created_at DESC
+    LIMIT 1
+  `, [userId], (err, row) => {
+    if (err) {
+      console.error("Error fetching user subscription:", err);
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!row) {
+      // Return free plan as default
+      db.get("SELECT * FROM subscription_plans WHERE id = 'free'", (err, freePlan) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        res.json({
+          subscription: {
+            id: null,
+            user_id: userId,
+            plan_id: 'free',
+            status: 'active',
+            billing_cycle: 'free',
+            start_date: new Date().toISOString(),
+            end_date: '2099-12-31T23:59:59.000Z',
+            auto_renew: false,
+            plan_name: freePlan.name,
+            features: JSON.parse(freePlan.features || '[]'),
+            max_daily_messages: freePlan.max_daily_messages,
+            max_monthly_messages: freePlan.max_monthly_messages,
+            grammar_categories_access: JSON.parse(freePlan.grammar_categories_access || '[]'),
+            price_monthly: freePlan.price_monthly
+          }
+        });
+      });
+    } else {
+      res.json({
+        subscription: {
+          ...row,
+          features: JSON.parse(row.features || '[]'),
+          grammar_categories_access: JSON.parse(row.grammar_categories_access || '[]')
+        }
+      });
+    }
+  });
+});
+
+// Create/Subscribe to a plan
+app.post("/user/:userId/subscription/subscribe", (req, res) => {
+  const { userId } = req.params;
+  const { plan_id, billing_cycle = 'monthly', payment_method = 'demo' } = req.body;
+  
+  if (!plan_id) {
+    return res.status(400).json({ error: "plan_id is required" });
+  }
+  
+  // Get plan details
+  db.get("SELECT * FROM subscription_plans WHERE id = ? AND is_active = 1", [plan_id], (err, plan) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    if (!plan) {
+      return res.status(404).json({ error: "Subscription plan not found" });
+    }
+    
+    if (plan.id === 'free') {
+      return res.status(400).json({ error: "Cannot subscribe to free plan" });
+    }
+    
+    // Calculate end date based on billing cycle
+    const startDate = new Date();
+    const endDate = new Date();
+    
+    if (billing_cycle === 'yearly') {
+      endDate.setFullYear(startDate.getFullYear() + 1);
+    } else {
+      endDate.setMonth(startDate.getMonth() + 1);
+    }
+    
+    // Deactivate any existing active subscriptions
+    db.run(
+      "UPDATE user_subscriptions SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE user_id = ? AND status = 'active'",
+      [userId],
+      (err) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        // Create new subscription
+        db.run(`
+          INSERT INTO user_subscriptions 
+          (user_id, plan_id, status, billing_cycle, start_date, end_date, payment_method)
+          VALUES (?, ?, 'active', ?, ?, ?, ?)
+        `, [userId, plan_id, billing_cycle, startDate.toISOString(), endDate.toISOString(), payment_method], 
+        function(err) {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          const subscriptionId = this.lastID;
+          
+          // Create payment transaction record
+          const amount = billing_cycle === 'yearly' && plan.price_yearly ? plan.price_yearly : plan.price_monthly;
+          
+          db.run(`
+            INSERT INTO payment_transactions 
+            (user_id, subscription_id, amount, status, payment_method, transaction_reference)
+            VALUES (?, ?, ?, 'completed', ?, ?)
+          `, [userId, subscriptionId, amount, payment_method, `demo_${Date.now()}`], (err) => {
+            if (err) {
+              console.error("Error creating payment transaction:", err);
+            }
+          });
+          
+          res.json({
+            success: true,
+            message: "Subscription created successfully",
+            subscription: {
+              id: subscriptionId,
+              user_id: userId,
+              plan_id: plan_id,
+              status: 'active',
+              billing_cycle: billing_cycle,
+              start_date: startDate.toISOString(),
+              end_date: endDate.toISOString(),
+              plan_name: plan.name,
+              amount_paid: amount
+            }
+          });
+        });
+      }
+    );
+  });
+});
+
+// Check usage limits and permissions
+app.get("/user/:userId/usage/check", (req, res) => {
+  const { userId } = req.params;
+  const { type = 'chat' } = req.query;
+  
+  // Get user's subscription
+  db.get(`
+    SELECT us.*, sp.max_daily_messages, sp.max_monthly_messages, sp.grammar_categories_access
+    FROM user_subscriptions us
+    JOIN subscription_plans sp ON us.plan_id = sp.id
+    WHERE us.user_id = ? AND us.status = 'active' AND us.end_date > datetime('now')
+    ORDER BY us.created_at DESC LIMIT 1
+  `, [userId], (err, subscription) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    
+    // Default to free plan if no subscription
+    if (!subscription) {
+      db.get("SELECT * FROM subscription_plans WHERE id = 'free'", (err, freePlan) => {
+        if (err) {
+          return res.status(500).json({ error: err.message });
+        }
+        
+        subscription = {
+          plan_id: 'free',
+          max_daily_messages: freePlan.max_daily_messages,
+          max_monthly_messages: freePlan.max_monthly_messages,
+          grammar_categories_access: freePlan.grammar_categories_access
+        };
+        
+        checkUsage();
+      });
+    } else {
+      checkUsage();
+    }
+    
+    function checkUsage() {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Get today's usage
+      db.get(
+        "SELECT count FROM user_usage WHERE user_id = ? AND usage_type = ? AND usage_date = ?",
+        [userId, type, today],
+        (err, usage) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          const todayUsage = usage ? usage.count : 0;
+          const maxDaily = subscription.max_daily_messages;
+          const maxMonthly = subscription.max_monthly_messages;
+          
+          // Check if unlimited (-1)
+          const hasUnlimitedDaily = maxDaily === -1;
+          const hasUnlimitedMonthly = maxMonthly === -1;
+          
+          const canUseToday = hasUnlimitedDaily || todayUsage < maxDaily;
+          
+          res.json({
+            usage_check: {
+              can_use: canUseToday,
+              today_usage: todayUsage,
+              daily_limit: maxDaily,
+              monthly_limit: maxMonthly,
+              plan_id: subscription.plan_id,
+              is_unlimited: hasUnlimitedDaily && hasUnlimitedMonthly,
+              grammar_categories_access: JSON.parse(subscription.grammar_categories_access || '[]'),
+              remaining_today: hasUnlimitedDaily ? -1 : Math.max(0, maxDaily - todayUsage)
+            }
+          });
+        }
+      );
+    }
+  });
+});
+
+// Track usage (increment counters)
+app.post("/user/:userId/usage/track", (req, res) => {
+  const { userId } = req.params;
+  const { type = 'chat', increment = 1 } = req.body;
+  
+  const today = new Date().toISOString().split('T')[0];
+  
+  // Try INSERT OR IGNORE first, then UPDATE
+  db.run(
+    "INSERT OR IGNORE INTO user_usage (user_id, usage_type, usage_date, count) VALUES (?, ?, ?, ?)",
+    [userId, type, today, increment],
+    function(err) {
+      if (err) {
+        return res.status(500).json({ error: err.message });
+      }
+      
+      if (this.changes === 0) {
+        // Record already exists, update it
+        db.run(
+          "UPDATE user_usage SET count = count + ? WHERE user_id = ? AND usage_type = ? AND usage_date = ?",
+          [increment, userId, type, today],
+          function(err) {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            res.json({ success: true, message: "Usage tracked (updated)" });
+          }
+        );
+      } else {
+        res.json({ success: true, message: "Usage tracked (new)" });
+      }
+    }
+  );
+});
+
+// ===========================================
 // GRAMMAR STUDY MODULE API ENDPOINTS
 // ===========================================
 
 // Get all grammar categories
 app.get("/grammar/categories", (req, res) => {
+  const { userId } = req.query;
+  
   db.all(
     "SELECT * FROM grammar_categories ORDER BY display_order",
     (err, rows) => {
@@ -1946,7 +2549,57 @@ app.get("/grammar/categories", (req, res) => {
         console.error("Error fetching grammar categories:", err);
         return res.status(500).json({ error: err.message });
       }
-      res.json({ categories: rows });
+      
+      // If no userId provided, return all categories without access control
+      if (!userId) {
+        return res.json({ categories: rows });
+      }
+      
+      // Get user's subscription to check category access
+      db.get(`
+        SELECT us.*, sp.grammar_categories_access, sp.name as plan_name
+        FROM user_subscriptions us
+        JOIN subscription_plans sp ON us.plan_id = sp.id
+        WHERE us.user_id = ? AND us.status = 'active' AND us.end_date > datetime('now')
+        ORDER BY us.created_at DESC LIMIT 1
+      `, [userId], (err, subscription) => {
+        if (err) {
+          console.error("Error fetching user subscription:", err);
+          return res.status(500).json({ error: err.message });
+        }
+        
+        let allowedCategories = [];
+        
+        if (!subscription) {
+          // Default to free plan access
+          db.get("SELECT grammar_categories_access FROM subscription_plans WHERE id = 'free'", (err, freePlan) => {
+            if (err) {
+              return res.status(500).json({ error: err.message });
+            }
+            
+            allowedCategories = JSON.parse(freePlan.grammar_categories_access || '[]');
+            returnCategoriesWithAccess();
+          });
+        } else {
+          allowedCategories = JSON.parse(subscription.grammar_categories_access || '[]');
+          returnCategoriesWithAccess();
+        }
+        
+        function returnCategoriesWithAccess() {
+          // Mark categories as locked/unlocked based on subscription
+          const categoriesWithAccess = rows.map(category => ({
+            ...category,
+            is_locked: !allowedCategories.includes('all') && !allowedCategories.includes(category.id),
+            requires_premium: !allowedCategories.includes('all') && !allowedCategories.includes(category.id)
+          }));
+          
+          res.json({ 
+            categories: categoriesWithAccess,
+            user_plan: subscription?.plan_name || 'Free',
+            allowed_categories: allowedCategories
+          });
+        }
+      });
     }
   );
 });
@@ -1954,17 +2607,74 @@ app.get("/grammar/categories", (req, res) => {
 // Get topics for a specific category
 app.get("/grammar/categories/:categoryId/topics", (req, res) => {
   const { categoryId } = req.params;
-  db.all(
-    "SELECT * FROM grammar_topics WHERE category_id = ? ORDER BY display_order",
-    [categoryId],
-    (err, rows) => {
+  const { userId } = req.query;
+  
+  // First check if user has access to this category
+  if (userId) {
+    db.get(`
+      SELECT us.*, sp.grammar_categories_access, sp.name as plan_name
+      FROM user_subscriptions us
+      JOIN subscription_plans sp ON us.plan_id = sp.id
+      WHERE us.user_id = ? AND us.status = 'active' AND us.end_date > datetime('now')
+      ORDER BY us.created_at DESC LIMIT 1
+    `, [userId], (err, subscription) => {
       if (err) {
-        console.error("Error fetching grammar topics:", err);
+        console.error("Error fetching user subscription:", err);
         return res.status(500).json({ error: err.message });
       }
-      res.json({ topics: rows });
-    }
-  );
+      
+      let allowedCategories = [];
+      
+      if (!subscription) {
+        // Default to free plan access
+        db.get("SELECT grammar_categories_access FROM subscription_plans WHERE id = 'free'", (err, freePlan) => {
+          if (err) {
+            return res.status(500).json({ error: err.message });
+          }
+          
+          allowedCategories = JSON.parse(freePlan.grammar_categories_access || '[]');
+          checkAccessAndReturnTopics();
+        });
+      } else {
+        allowedCategories = JSON.parse(subscription.grammar_categories_access || '[]');
+        checkAccessAndReturnTopics();
+      }
+      
+      function checkAccessAndReturnTopics() {
+        // Check if user has access to this category
+        const hasAccess = allowedCategories.includes('all') || allowedCategories.includes(categoryId);
+        
+        if (!hasAccess) {
+          return res.status(403).json({ 
+            error: "Premium subscription required",
+            message: `Access to ${categoryId} category requires a premium subscription`,
+            category_locked: true,
+            user_plan: subscription?.plan_name || 'Free'
+          });
+        }
+        
+        // User has access, return topics
+        getTopics();
+      }
+    });
+  } else {
+    // No userId provided, return topics without access control
+    getTopics();
+  }
+  
+  function getTopics() {
+    db.all(
+      "SELECT * FROM grammar_topics WHERE category_id = ? ORDER BY display_order",
+      [categoryId],
+      (err, rows) => {
+        if (err) {
+          console.error("Error fetching grammar topics:", err);
+          return res.status(500).json({ error: err.message });
+        }
+        res.json({ topics: rows });
+      }
+    );
+  }
 });
 
 // Get exercises for a specific topic
@@ -2153,6 +2863,81 @@ app.put("/grammar/categories/:id", (req, res) => {
       res.json({ success: true, updated: this.changes, message: "Category updated successfully" });
     }
   );
+});
+
+// Batch update explanations for topics
+app.post("/admin/batch-update-explanations", (req, res) => {
+  const { updates } = req.body;
+  
+  if (!Array.isArray(updates)) {
+    return res.status(400).json({ error: "Updates must be an array" });
+  }
+  
+  console.log(`Batch updating explanations for ${updates.length} topics...`);
+  
+  let completed = 0;
+  let successful = 0;
+  let failed = 0;
+  const errors = [];
+  
+  if (updates.length === 0) {
+    return res.json({ success: true, message: "No updates provided", successful: 0, failed: 0 });
+  }
+  
+  updates.forEach((update, index) => {
+    const { id, explanation, examples } = update;
+    
+    if (!id || !explanation) {
+      completed++;
+      failed++;
+      errors.push(`Update ${index}: Missing id or explanation`);
+      
+      if (completed === updates.length) {
+        res.json({
+          success: failed < successful,
+          message: `Batch update completed: ${successful} successful, ${failed} failed`,
+          successful,
+          failed,
+          errors: errors.length > 0 ? errors : undefined
+        });
+      }
+      return;
+    }
+    
+    db.run(
+      `UPDATE grammar_topics 
+       SET explanation = ?, examples = ? 
+       WHERE id = ?`,
+      [explanation, JSON.stringify(examples || []), id],
+      function (err) {
+        completed++;
+        
+        if (err) {
+          failed++;
+          errors.push(`Topic ${id}: ${err.message}`);
+          console.error(`Error updating topic ${id}:`, err);
+        } else if (this.changes === 0) {
+          failed++;
+          errors.push(`Topic ${id}: Topic not found`);
+          console.log(`Topic ${id} not found in database`);
+        } else {
+          successful++;
+          console.log(`✅ Updated explanation for topic: ${id}`);
+        }
+        
+        // Send response when all updates are processed
+        if (completed === updates.length) {
+          res.json({
+            success: failed < successful,
+            message: `Batch update completed: ${successful} successful, ${failed} failed`,
+            successful,
+            failed,
+            errors: errors.length > 0 ? errors : undefined
+          });
+        }
+      }
+    );
+  });
 });
 
 // Delete category (and all related topics and exercises)
@@ -2685,6 +3470,253 @@ app.get("/grammar/topics/:topicId/explanation", (req, res) => {
       });
     }
   );
+});
+
+// ==================== PAYMENT ENDPOINTS ====================
+
+// Create Payment Intent
+app.post('/payment/create-intent', async (req, res) => {
+  try {
+    const { planId, billingCycle, userId } = req.body;
+
+    if (!planId || !billingCycle || !userId) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: planId, billingCycle, userId' 
+      });
+    }
+
+    // Get plan details from database
+    const plan = await new Promise((resolve, reject) => {
+      db.get(
+        `SELECT * FROM subscription_plans WHERE id = ?`,
+        [planId],
+        (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        }
+      );
+    });
+
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    // Calculate amount based on billing cycle
+    let amount;
+    if (billingCycle === 'yearly' && plan.price_yearly) {
+      amount = Math.round(plan.price_yearly * 100); // Convert to cents
+    } else {
+      amount = Math.round(plan.price_monthly * 100); // Convert to cents
+    }
+
+    // Try to create payment intent with Stripe, fallback to demo mode if failed
+    let paymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: 'usd',
+        metadata: {
+          planId: planId,
+          billingCycle: billingCycle,
+          userId: userId,
+          planName: plan.name
+        },
+        automatic_payment_methods: {
+          enabled: true,
+        },
+      });
+    } catch (stripeError) {
+      console.log('Stripe error, falling back to demo mode:', stripeError.message);
+      // Return demo payment intent if Stripe fails
+      const demoPaymentIntentId = 'pi_demo_' + Date.now();
+      return res.json({
+        success: true,
+        clientSecret: 'pi_demo_client_secret_' + Date.now(),
+        paymentIntentId: demoPaymentIntentId,
+        amount: amount,
+        currency: 'usd',
+        demoMode: true
+      });
+    }
+
+    res.json({
+      success: true,
+      clientSecret: paymentIntent.client_secret,
+      paymentIntentId: paymentIntent.id,
+      amount: amount,
+      currency: 'usd'
+    });
+
+  } catch (error) {
+    console.error('Error creating payment intent:', error);
+    res.status(500).json({ 
+      error: 'Failed to create payment intent',
+      details: error.message 
+    });
+  }
+});
+
+// Confirm Payment and Create Subscription
+app.post('/payment/confirm', async (req, res) => {
+  try {
+    const { paymentIntentId, planId, billingCycle, userId } = req.body;
+
+    if (!paymentIntentId || !planId || !billingCycle || !userId) {
+      return res.status(400).json({ 
+        error: 'Missing required fields' 
+      });
+    }
+
+    // Verify payment with Stripe or handle demo payments
+    let paymentAmount = 0;
+    let paymentCurrency = 'usd';
+    
+    if (paymentIntentId.startsWith('pi_demo_')) {
+      // Handle demo payment
+      console.log('Processing demo payment confirmation');
+      paymentAmount = billingCycle === 'yearly' ? 99.00 : 9.99; // Demo amounts
+      paymentCurrency = 'usd';
+    } else {
+      // Verify real Stripe payment
+      try {
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+        console.log(`Payment intent status: ${paymentIntent.status}`);
+        
+        // For development/testing, if payment intent exists but not succeeded,
+        // we can treat it as successful for testing purposes
+        const isDevelopment = process.env.NODE_ENV !== 'production';
+        
+        if (paymentIntent.status === 'succeeded') {
+          // Payment actually completed
+          console.log('Payment intent succeeded');
+          paymentAmount = paymentIntent.amount / 100;
+          paymentCurrency = paymentIntent.currency;
+        } else if (isDevelopment && (paymentIntent.status === 'requires_payment_method' || paymentIntent.status === 'requires_confirmation')) {
+          // In development, treat pending payments as successful for testing
+          console.log('Development mode: treating pending payment as successful for testing');
+          paymentAmount = paymentIntent.amount / 100;
+          paymentCurrency = paymentIntent.currency;
+        } else {
+          console.log(`Payment not completed. Status: ${paymentIntent.status}`);
+          return res.status(400).json({ 
+            error: 'Payment not completed successfully',
+            status: paymentIntent.status,
+            hint: 'In production, payment must be completed through Stripe Elements or Payment Sheet'
+          });
+        }
+      } catch (stripeError) {
+        console.log('Stripe verification failed, treating as demo:', stripeError.message);
+        paymentAmount = billingCycle === 'yearly' ? 99.00 : 9.99;
+        paymentCurrency = 'usd';
+      }
+    }
+
+    // Calculate subscription end date
+    const now = new Date();
+    const endDate = new Date(now);
+    if (billingCycle === 'yearly') {
+      endDate.setFullYear(now.getFullYear() + 1);
+    } else {
+      endDate.setMonth(now.getMonth() + 1);
+    }
+
+    // Create or update subscription in database
+    await new Promise((resolve, reject) => {
+      db.run(
+        `INSERT OR REPLACE INTO user_subscriptions 
+         (user_id, plan_id, billing_cycle, start_date, end_date, status)
+         VALUES (?, ?, ?, ?, ?, 'active')`,
+        [userId, planId, billingCycle, now.toISOString(), endDate.toISOString()],
+        function(err) {
+          if (err) reject(err);
+          else resolve(this.lastID);
+        }
+      );
+    });
+
+    // Record payment transaction
+    await new Promise((resolve, reject) => {
+      db.run(
+        `INSERT INTO payment_transactions 
+         (user_id, amount, currency, status, transaction_reference, created_at)
+         VALUES (?, ?, ?, 'completed', ?, ?)`,
+        [
+          userId, 
+          paymentAmount, // Use the calculated amount
+          paymentCurrency, // Use the calculated currency
+          paymentIntentId, // Store payment intent ID as transaction reference
+          now.toISOString()
+        ],
+        function(err) {
+          if (err) reject(err);
+          else resolve(this.lastID);
+        }
+      );
+    });
+
+    // Reset user's usage for the new subscription
+    await new Promise((resolve, reject) => {
+      db.run(
+        `DELETE FROM user_usage WHERE user_id = ?`,
+        [userId],
+        function(err) {
+          if (err) reject(err);
+          else resolve();
+        }
+      );
+    });
+
+    res.json({
+      success: true,
+      message: 'Payment confirmed and subscription activated',
+      subscriptionEndDate: endDate.toISOString()
+    });
+
+  } catch (error) {
+    console.error('Error confirming payment:', error);
+    res.status(500).json({ 
+      error: 'Failed to confirm payment',
+      details: error.message 
+    });
+  }
+});
+
+// Webhook endpoint for Stripe events
+app.post('/payment/webhook', express.raw({type: 'application/json'}), (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!webhookSecret) {
+    console.warn('Stripe webhook secret not configured');
+    return res.status(400).send('Webhook secret not configured');
+  }
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle the event
+  switch (event.type) {
+    case 'payment_intent.succeeded':
+      const paymentIntent = event.data.object;
+      console.log('Payment succeeded:', paymentIntent.id);
+      // Additional processing if needed
+      break;
+    case 'payment_intent.payment_failed':
+      const failedPayment = event.data.object;
+      console.log('Payment failed:', failedPayment.id);
+      // Handle failed payment
+      break;
+    default:
+      console.log(`Unhandled event type ${event.type}`);
+  }
+
+  res.json({received: true});
 });
 
 const PORT = process.env.PORT || 3000;

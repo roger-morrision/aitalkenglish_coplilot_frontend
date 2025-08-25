@@ -36,28 +36,37 @@ class ApiService {
     return result['reply'] ?? 'Error';
   }
 
-  // Combined chat and suggestions to reduce API calls
+  // Combined chat and suggestions to reduce API calls with subscription support
   static Future<Map<String, dynamic>> sendChatMessageWithSuggestions(
     String message, {
     String? conversationId,
+    String? userId,
     bool includeSuggestions = true,
   }) async {
     print('=== API SERVICE COMBINED DEBUG ===');
     print('API Service: sendChatMessageWithSuggestions called with message: $message');
     print('API Service: includeSuggestions: $includeSuggestions');
+    print('API Service: userId: $userId');
     
     try {
       final uri = Uri.parse('$baseUrl/chat-with-suggestions');
       print('API Service: Making combined request to: $uri');
       
+      final requestBody = {
+        'message': message,
+        'conversation_id': conversationId,
+        'include_suggestions': includeSuggestions,
+      };
+      
+      // Add userId if provided for subscription checking
+      if (userId != null) {
+        requestBody['userId'] = userId;
+      }
+      
       final response = await http.post(
         uri,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'message': message,
-          'conversation_id': conversationId,
-          'include_suggestions': includeSuggestions,
-        }),
+        body: jsonEncode(requestBody),
       ).timeout(ApiConfig.chatTimeout); // Use chat timeout for combined call
       
       print('API Service: Combined response status: ${response.statusCode}');
@@ -68,6 +77,15 @@ class ApiService {
         print('API Service: Successfully parsed combined response');
         print('=== END API SERVICE COMBINED DEBUG ===');
         return parsed;
+      } else if (response.statusCode == 429) {
+        // Usage limit exceeded
+        final errorData = jsonDecode(response.body);
+        print('API Service: Usage limit exceeded: ${errorData}');
+        print('=== END API SERVICE COMBINED DEBUG ===');
+        throw UsageLimitExceededException(
+          errorData['message'] ?? 'Daily message limit exceeded',
+          errorData['usage_info'],
+        );
       } else {
         print('API Service: Combined HTTP error ${response.statusCode}: ${response.body}');
         throw Exception('HTTP ${response.statusCode}: ${response.body}');
@@ -628,10 +646,15 @@ class ApiService {
 
   // GRAMMAR STUDY API METHODS
 
-  // Get all grammar categories
-  static Future<List<dynamic>> getGrammarCategories() async {
+  // Get all grammar categories with subscription support
+  static Future<List<dynamic>> getGrammarCategories({String? userId}) async {
+    String url = '$baseUrl/grammar/categories';
+    if (userId != null) {
+      url += '?userId=$userId';
+    }
+    
     final response = await http.get(
-      Uri.parse('$baseUrl/grammar/categories'),
+      Uri.parse(url),
     ).timeout(ApiConfig.generalApiTimeout);
     
     if (response.statusCode == 200) {
@@ -649,10 +672,15 @@ class ApiService {
     }
   }
 
-  // Get topics for a specific category
-  static Future<List<dynamic>> getGrammarTopics(String categoryId) async {
+  // Get topics for a specific category with subscription support
+  static Future<List<dynamic>> getGrammarTopics(String categoryId, {String? userId}) async {
+    String url = '$baseUrl/grammar/categories/$categoryId/topics';
+    if (userId != null) {
+      url += '?userId=$userId';
+    }
+    
     final response = await http.get(
-      Uri.parse('$baseUrl/grammar/categories/$categoryId/topics'),
+      Uri.parse(url),
     ).timeout(ApiConfig.generalApiTimeout);
     
     if (response.statusCode == 200) {
@@ -665,6 +693,11 @@ class ApiService {
       } else {
         return [];
       }
+    } else if (response.statusCode == 403) {
+      final errorData = jsonDecode(response.body);
+      throw SubscriptionRequiredException(
+        errorData['message'] ?? 'Premium subscription required for this content',
+      );
     } else {
       throw Exception('Failed to load grammar topics: ${response.body}');
     }
@@ -805,4 +838,24 @@ class ApiService {
       throw Exception('Failed to clear topic progress: ${response.body}');
     }
   }
+}
+
+// Custom exceptions for subscription and usage limits
+class UsageLimitExceededException implements Exception {
+  final String message;
+  final Map<String, dynamic>? usageInfo;
+  
+  UsageLimitExceededException(this.message, this.usageInfo);
+  
+  @override
+  String toString() => message;
+}
+
+class SubscriptionRequiredException implements Exception {
+  final String message;
+  
+  SubscriptionRequiredException(this.message);
+  
+  @override
+  String toString() => message;
 }

@@ -61,3 +61,6 @@ yarn-error.log*
 # Backend uploads
 uploads/
 temp/
+/.dart_tool
+/build
+/.dart_tool

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -6,6 +7,9 @@ import '../../services/api_service.dart';
 import '../../services/progress_service.dart';
 import '../../services/conversation_service.dart';
 import '../../models/conversation.dart';
+import '../../providers/subscription_provider.dart';
+import '../../widgets/subscription_widgets.dart';
+import '../../features/subscription/subscription_screen.dart';
 import '../settings/settings_screen.dart';
 import '../../widgets/audio_player.dart';
 import 'conversation_history_screen.dart';
@@ -179,13 +183,30 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
   void _sendMessage(String text) async {
     if (text.trim().isEmpty) return;
     
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    
+    // Check subscription and usage limits
+    final subscriptionProvider = Provider.of<SubscriptionProvider>(context, listen: false);
+    
+    try {
+      // Check if user can send messages
+      await subscriptionProvider.checkUsage();
+      
+      if (!subscriptionProvider.canSendMessage) {
+        // Show upgrade prompt
+        _showUsageLimitDialog();
+        return;
+      }
+    } catch (e) {
+      print('Error checking usage: $e');
+      // Continue without subscription check in case of error
+    }
+    
     try {
       // Track user progress
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        final currentProgress = await ProgressService.loadProgress(user.uid);
-        await ProgressService.trackMessageSubmission(currentProgress, text, 'chat');
-      }
+      final currentProgress = await ProgressService.loadProgress(user.uid);
+      await ProgressService.trackMessageSubmission(currentProgress, text, 'chat');
       
       // Add user message to conversation service, using current conversation if available
       print('_sendMessage: Current conversation before addUserMessage: ${_currentConversation?.id}');
@@ -217,6 +238,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
         aiResponseData = await ApiService.sendChatMessageWithSuggestions(
           text,
           conversationId: _currentConversation?.id,
+          userId: user.uid, // Pass userId for subscription checking
           includeSuggestions: true,
         );
         
@@ -238,6 +260,9 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
         aiResponse = await _getAIResponse(text);
         suggestions = null;
       }
+      
+      // Track message usage after successful response
+      await subscriptionProvider.trackMessageUsage();
       
       print('_sendMessage: Received AI response: "${aiResponse.substring(0, aiResponse.length > 100 ? 100 : aiResponse.length)}..."');
       
@@ -333,14 +358,50 @@ class _ChatbotScreenState extends State<ChatbotScreen> with TickerProviderStateM
       setState(() => _isTyping = false);
       
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error sending message: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (e.toString().contains('Usage limit exceeded')) {
+          _showUsageLimitDialog();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error sending message: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       }
     }
+  }
+
+  void _showUsageLimitDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Daily Message Limit Reached'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('You\'ve reached your daily limit of 3 messages.'),
+              SizedBox(height: 16),
+              Text('Upgrade to Premium for unlimited messages and full access to all features!'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Maybe Later'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushNamed(context, '/subscription');
+              },
+              child: Text('Upgrade Now'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _scrollToBottom() {

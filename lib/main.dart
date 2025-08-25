@@ -5,6 +5,8 @@ import 'features/grammar/grammar_screen.dart';
 import 'features/vocab/vocab_screen.dart';
 import 'features/lesson/lesson_screen.dart';
 import 'features/progress/progress_screen.dart';
+import 'features/subscription/subscription_screen.dart';
+import 'providers/subscription_provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -48,6 +50,8 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
+  bool _subscriptionInitialized = false;
+  
   static const List<Widget> _screens = [
     ChatbotScreen(),
     GrammarScreen(),
@@ -57,8 +61,121 @@ class _MainScreenState extends State<MainScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _initializeSubscription();
+  }
+
+  void _initializeSubscription() async {
+    final user = FirebaseAuth.instance.currentUser;
+    print('🔄 _initializeSubscription called');
+    print('👤 Current Firebase user: ${user?.email}');
+    print('🔄 _subscriptionInitialized: $_subscriptionInitialized');
+    
+    if (user != null && !_subscriptionInitialized) {
+      print('🚀 Initializing subscription provider with UID: ${user.uid}');
+      final subscriptionProvider = Provider.of<SubscriptionProvider>(context, listen: false);
+      await subscriptionProvider.initialize(user.uid);
+      setState(() {
+        _subscriptionInitialized = true;
+      });
+      print('✅ Subscription provider initialized successfully');
+    } else {
+      if (user == null) {
+        print('❌ No user logged in for subscription initialization');
+      }
+      if (_subscriptionInitialized) {
+        print('ℹ️ Subscription already initialized');
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('AI Talk English'),
+        backgroundColor: Colors.deepPurple,
+        foregroundColor: Colors.white,
+        actions: [
+          // Subscription status indicator
+          Consumer<SubscriptionProvider>(
+            builder: (context, provider, child) {
+              if (!_subscriptionInitialized || provider.currentUsage == null) {
+                return const SizedBox.shrink();
+              }
+              
+              return Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: Center(
+                  child: GestureDetector(
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+                    ),
+                    child: provider.isPremium
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.amber,
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.star, color: Colors.white, size: 16),
+                              const SizedBox(width: 4),
+                              const Text(
+                                'Premium',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.message, color: Colors.white, size: 16),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${provider.remainingMessages}/${provider.currentUsage!.dailyLimit}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                  ),
+                ),
+              );
+            },
+          ),
+          
+          // Settings/Profile button
+          IconButton(
+            icon: const Icon(Icons.account_circle),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
+              );
+            },
+          ),
+        ],
+      ),
       body: _screens[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
@@ -71,6 +188,8 @@ class _MainScreenState extends State<MainScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.bar_chart), label: 'Progress'),
         ],
         type: BottomNavigationBarType.fixed,
+        selectedItemColor: Colors.deepPurple,
+        unselectedItemColor: Colors.grey,
       ),
     );
   }
@@ -90,8 +209,11 @@ void main() async {
   }
 
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppState(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AppState()),
+        ChangeNotifierProvider(create: (_) => SubscriptionProvider()),
+      ],
       child: MaterialApp(
         title: 'AI Talk English',
         theme: ThemeData(
@@ -99,6 +221,9 @@ void main() async {
           scaffoldBackgroundColor: Colors.deepPurple.shade50,
         ),
         home: const AppInitializer(),
+        routes: {
+          '/subscription': (context) => const SubscriptionScreen(),
+        },
         debugShowCheckedModeBanner: false,
         builder: (context, child) {
           return Stack(
